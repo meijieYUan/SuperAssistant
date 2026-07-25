@@ -1,0 +1,36 @@
+spring:
+  application:
+    name: SuperAssistant
+
+  ai:
+    deepseek:
+      api-key: ${DEEPSEEK_API_KEY:your-api-key-here}
+      base-url: https://api.deepseek.com
+      chat:
+        options:
+          model: deepseek-chat
+          temperature: 0.7
+
+  datasource:
+    url: jdbc:h2:mem:superassistant;DB_CLOSE_DELAY=-1;MODE=MySQL
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      id-type: auto
+      table-prefix: ""
+  mapper-locations: classpath*:/mapper/**/*.xml
+
+server:
+  port: 8080

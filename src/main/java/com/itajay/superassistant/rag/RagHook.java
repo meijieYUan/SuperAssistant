@@ -1,0 +1,103 @@
+package com.itajay.superassistant.rag;
+
+import com.alibaba.cloud.ai.graph.OverAllState;
+import com.alibaba.cloud.ai.graph.RunnableConfig;
+import com.alibaba.cloud.ai.graph.agent.hook.AgentHook;
+import com.alibaba.cloud.ai.graph.agent.hook.HookPosition;
+import lombok.RequiredArgsConstructor;
+import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.SystemMessage;
+import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.chat.prompt.PromptTemplate;
+import org.springframework.ai.document.Document;
+import org.springframework.ai.rag.Query;
+import org.springframework.ai.rag.generation.augmentation.ContextualQueryAugmenter;
+import org.springframework.stereotype.Component;
+
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
+@Component
+public class RagHook extends AgentHook {
+
+    public final QueryExpansion queryExpansion;
+    public final QueryTransformation queryTransformation;
+    public final DocumentRetrieval documentRetrieval;
+    public final DoucmentPostRetrieval doucmentPostRetrieval;
+
+
+    public RagHook(QueryExpansion queryExpansion, QueryTransformation queryTransformation, DocumentRetrieval documentRetrieval, DoucmentPostRetrieval doucmentPostRetrieval) {
+        this.queryExpansion = queryExpansion;
+        this.queryTransformation = queryTransformation;
+        this.documentRetrieval = documentRetrieval;
+        this.doucmentPostRetrieval = doucmentPostRetrieval;
+
+    }
+
+    @Override
+    public String getName() {
+        return "rag_hook";
+    }
+
+    @Override
+    public HookPosition[] getHookPositions() {
+        return new HookPosition[]{HookPosition.BEFORE_AGENT};
+    }
+
+    /**
+     *  对用户的提问进行上下文补充
+     * @param state
+     * @param config
+     * @return
+     */
+    @Override
+    public CompletableFuture<Map<String, Object>> beforeAgent(OverAllState state, RunnableConfig config) {
+        // 从状态中提取用户查询
+        //messages——历史消息  input——当前输入的消息
+        Optional<Object> messagesOpt = state.value("messages");
+        if (messagesOpt.isEmpty()) {
+            return CompletableFuture.completedFuture(Map.of());
+        }
+        @SuppressWarnings("unchecked")
+        List<Message>messages=(List<Message>)messagesOpt.get();
+        Optional<Object> inputOpt = state.value("input");
+        if(inputOpt.isEmpty()){    //输入不存在
+            return CompletableFuture.completedFuture(Map.of());
+        }
+        String text=String.valueOf(inputOpt.get());
+        //构建 Rag Query
+        Query query = Query.builder()
+                .history(messages)
+                //.context()
+// Query的 context 用于实现运行时动态过滤 .context(Map.of(VectorStoreDocumentRetriever.FILTER_EXPRESSION, "location == 'Whispering Woods'"))
+                .text(text).build();
+        //结合历史对话进行问题压缩
+        Query compressedQuery = queryTransformation.doCompress(query);
+        //将压缩后查询进行问题拓展
+        List<Query> queries = queryExpansion.doExpand(compressedQuery);
+        Map<Query,List<List<Document>>> queriesDocuments = new HashMap<>();
+        for(Query expandedQuery : queries){
+            List<Document> documents = documentRetrieval.doRetrieve(expandedQuery);
+            queriesDocuments.put(expandedQuery,List.of(documents));
+        }
+        List<Document> documents = doucmentPostRetrieval.dojoin(queriesDocuments);
+        String context = documents.stream().map(document -> document.getText()).collect
+                (Collectors.joining("\n"));
+        String systemPrompt = String.format(RAG_Template, context);
+        List<Message>enhancedMessages=List.of(new SystemMessage(systemPrompt),new UserMessage(text));
+        //使用检索的文档上下文进行回答（默认覆盖了历史消息）
+        return CompletableFuture.completedFuture(Map.of("messages",enhancedMessages));
+    }
+
+    public final String RAG_Template= """
+    你是用户的知识百科助手。基于以下上下文回答问题。
+    如果上下文中没有相关信息，请直接说明你不知道。
+    -------------------------------------------
+    上下文：
+        %s
+    """;
+
+}

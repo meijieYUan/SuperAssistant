@@ -1,0 +1,54 @@
+package com.itajay.superassistant.config;
+
+import io.micrometer.observation.ObservationRegistry;
+import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.deepseek.DeepSeekChatModel;
+import org.springframework.ai.deepseek.DeepSeekChatOptions;
+import org.springframework.ai.deepseek.api.DeepSeekApi;
+import org.springframework.ai.model.tool.DefaultToolCallingManager;
+import org.springframework.ai.model.tool.ToolCallingManager;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+public class ModelConfig {
+
+    @Value("${spring.ai.deepseek.api-key}")
+    private String apiKey;
+
+    @Value("${spring.ai.deepseek.base-url:https://api.deepseek.com}")
+    private String baseUrl;
+
+    @Value("${spring.ai.deepseek.chat.options.model:deepseek-chat}")
+    private String model;
+
+    @Bean
+    public DeepSeekApi deepSeekApi() {
+        return DeepSeekApi.builder()
+                .apiKey(apiKey)
+                .baseUrl(baseUrl)
+                .build();
+    }
+
+    @Bean
+    public ChatModel chatModel(DeepSeekApi deepSeekApi,
+                                ToolCallingManager toolCallingManager,
+                                ObservationRegistry observationRegistry) {
+        return DeepSeekChatModel.builder()
+                .deepSeekApi(deepSeekApi)
+                .defaultOptions(DeepSeekChatOptions.builder()
+                        .model(model)
+                        .temperature(0.7)
+                        .build())
+                .toolCallingManager(toolCallingManager)
+                .observationRegistry(observationRegistry)
+                .build();
+    }
+
+    @Bean
+    public ChatClient chatClient(ChatModel chatModel) {
+        return ChatClient.create(chatModel);
+    }
+}
