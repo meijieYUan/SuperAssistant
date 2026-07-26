@@ -1,0 +1,23 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: mcp-email-server
+
+  ai:
+    mcp:
+      server:
+        name: email-mcp-server
+        version: 1.0.0
+        type: SYNC
+        instructions: "MCP Email Server — send emails via SMTP."
+
+  mail:
+    host: ${SMTP_HOST:smtp.qq.com}
+    port: ${SMTP_PORT:465}
+    username: ${SMTP_USER:}
+    password: ${SMTP_PASSWORD:}
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.ssl.enable: true

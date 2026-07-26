@@ -15,7 +15,7 @@ public class RagAgent {
     public final String AGENT_DESCRIPTION="";
 
 
-    public RagAgent(AgentHook raghook, MysqlSaver saver, ChatModel chatModel) {
+    public RagAgent(AgentHook raghook, ChatModel chatModel) {
         this.reactAgent = ReactAgent.builder()
                 .name("rag-agent")
                 .model(chatModel)
@@ -23,7 +23,6 @@ public class RagAgent {
                 .includeContents(false) //让rag agent专注于用户问题进行回答
                 .description(AGENT_DESCRIPTION)
                 .hooks(raghook)
-                .saver(saver)
                 .build();
     }
 

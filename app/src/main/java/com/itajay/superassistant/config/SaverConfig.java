@@ -26,5 +26,14 @@ public class SaverConfig {
                 .driverClassName("com.mysql.cj.jdbc.Driver")
                 .build();
     }
+    @Bean
+    public DataSource ragDataSource() {
+        return DataSourceBuilder.create()
+                .url("jdbc:mysql://localhost:3306/superassistant_rag")
+                .username("root")
+                .password("123456")
+                .driverClassName("com.mysql.cj.jdbc.Driver")
+                .build();
+    }
 
 }

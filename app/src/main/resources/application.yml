@@ -1,6 +1,6 @@
 spring:
   application:
-    name: SuperAssistant
+    name: super-assistant-app
 
   ai:
     deepseek:
@@ -10,6 +10,20 @@ spring:
         options:
           model: deepseek-chat
           temperature: 0.7
+
+    mcp:
+      client:
+        enabled: true
+        name: super-assistant
+        version: 1.0.0
+        type: SYNC
+        toolcallback:
+          enabled: true
+        sse:
+          connections:
+            email-server:
+              url: http://localhost:8081
+              sse-endpoint: /mcp/sse
 
   datasource:
     url: jdbc:h2:mem:superassistant;DB_CLOSE_DELAY=-1;MODE=MySQL
@@ -30,7 +44,6 @@ mybatis-plus:
     db-config:
       id-type: auto
       table-prefix: ""
-  mapper-locations: classpath*:/mapper/**/*.xml
 
 server:
   port: 8080
