@@ -1,4 +1,4 @@
-package com.itajay.superassistant.controller;
+package com.itajay.superassistant.app;
 
 import com.itajay.superassistant.entity.TodoTask;
 import com.itajay.superassistant.service.TodoService;

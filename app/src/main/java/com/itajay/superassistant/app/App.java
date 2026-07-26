@@ -1,8 +1,9 @@
-package com.itajay.superassistant.controller;
+package com.itajay.superassistant.app;
 
 import com.alibaba.cloud.ai.graph.RunnableConfig;
 import com.alibaba.cloud.ai.graph.agent.AgentTool;
 import com.alibaba.cloud.ai.graph.agent.ReactAgent;
+import com.alibaba.cloud.ai.graph.agent.hook.skills.SkillsAgentHook;
 import com.itajay.superassistant.rag.RagAgent;
 import com.itajay.superassistant.rag.RagService;
 import org.slf4j.Logger;
@@ -10,9 +11,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.tool.ToolCallback;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.ResourceLoader;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -23,20 +24,22 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api")
-public class ChatController {
+public class App {
 
-    private static final Logger log = LoggerFactory.getLogger(ChatController.class);
+    private static final Logger log = LoggerFactory.getLogger(App.class);
 
     private final ReactAgent superiorAgent;
     private final RagService ragService;
     private final ResourceLoader resourceLoader;
     public final String SYSTEM_PROMPT="";
 
-    public ChatController(ChatModel chatModel, RagAgent ragAgent, RagService ragService, ResourceLoader resourceLoader) {
+    public App(ChatModel chatModel, RagAgent ragAgent, RagService ragService, SkillsAgentHook skillsAgentHook,
+               ResourceLoader resourceLoader) {
         this.superiorAgent = ReactAgent
                 .builder()
                 .model(chatModel)
                 .tools(AgentTool.create(ragAgent.reactAgent))
+                .hooks(skillsAgentHook)
                 .systemPrompt(SYSTEM_PROMPT)
                 .build();
         this.ragService = ragService;

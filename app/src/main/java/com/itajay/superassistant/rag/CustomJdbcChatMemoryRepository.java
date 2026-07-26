@@ -1,6 +1,7 @@
 package com.itajay.superassistant.rag;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.memory.ChatMemoryRepository;
@@ -30,11 +31,11 @@ public class CustomJdbcChatMemoryRepository implements ChatMemoryRepository {
 
     private static final String CREATE_TABLE_SQL =
             "CREATE TABLE IF NOT EXISTS " + TABLE_NAME + " (" +
-            "`conversation_id` VARCHAR(100) NOT NULL," +
-            "`content` LONGTEXT NOT NULL," +
+            "`conversation_id` VARCHAR(64) NOT NULL," +
+            "`content` TEXT NOT NULL," +
             "`type` VARCHAR(20) NOT NULL," +
             "`timestamp` TIMESTAMP NOT NULL," +
-            "`sequence_id` BIGINT NOT NULL," +
+            "`sequence_id` BIGINT  AUTO_INCREMENT," +
             "INDEX `CUSTOM_CM_CONV_SEQ_IDX` (`conversation_id`, `sequence_id`)" +
             ")";
 
@@ -51,27 +52,18 @@ public class CustomJdbcChatMemoryRepository implements ChatMemoryRepository {
 
     private static final String INSERT_MESSAGE_SQL =
             "INSERT INTO " + TABLE_NAME +
-            " (conversation_id, content, type, timestamp, sequence_id) VALUES (?, ?, ?, ?, ?)";
+            " (conversation_id, content, type, timestamp) VALUES (?, ?, ?, ?)";
 
     private static final String DELETE_BY_CONVERSATION_ID_SQL =
             "DELETE FROM " + TABLE_NAME + " WHERE conversation_id = ?";
 
-    private static final String NEXT_SEQUENCE_SQL =
-            "SELECT COALESCE(MAX(sequence_id), 0) + 1 FROM " + TABLE_NAME +
-            " WHERE conversation_id = ?";
 
     private final DataSource dataSource;
-    private ObjectMapper objectMapper;
 
     public CustomJdbcChatMemoryRepository(DataSource dataSource) {
-        this(dataSource, new ObjectMapper());
+        this.dataSource=dataSource;
     }
 
-    public CustomJdbcChatMemoryRepository(DataSource dataSource, ObjectMapper objectMapper) {
-        this.dataSource = dataSource;
-        this.objectMapper = objectMapper;
-        initTable();
-    }
 
     public static Builder builder() {
         return new Builder();
@@ -79,22 +71,15 @@ public class CustomJdbcChatMemoryRepository implements ChatMemoryRepository {
 
     public static class Builder {
         private DataSource dataSource;
-        private ObjectMapper objectMapper;
 
         public Builder dataSource(DataSource dataSource) {
             this.dataSource = dataSource;
             return this;
         }
 
-        public Builder objectMapper(ObjectMapper objectMapper) {
-            this.objectMapper = objectMapper;
-            return this;
-        }
+
 
         public CustomJdbcChatMemoryRepository build() {
-            if (objectMapper != null) {
-                return new CustomJdbcChatMemoryRepository(dataSource, objectMapper);
-            }
             return new CustomJdbcChatMemoryRepository(dataSource);
         }
     }
@@ -125,26 +110,24 @@ public class CustomJdbcChatMemoryRepository implements ChatMemoryRepository {
         return ids;
     }
 
+    @NotNull
     @Override
-    public List<Message> findByConversationId(String conversationId) {
+    public List<Message> findByConversationId(@NotNull String conversationId) {
         return findByConversationIdInternal(conversationId, FIND_BY_CONVERSATION_ID_SQL, null);
     }
 
     @Override
-    public void saveAll(String conversationId, List<Message> messages) {
+    public void saveAll( String conversationId,  List<Message> messages) {
         if (messages == null || messages.isEmpty()) {
             return;
         }
-        long nextSeq = nextSequenceId(conversationId);
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(INSERT_MESSAGE_SQL)) {
             for (Message message : messages) {
-                String content = serializeMessage(message);
                 ps.setString(1, conversationId);
-                ps.setString(2, content);
+                ps.setString(2, message.getText());
                 ps.setString(3, message.getMessageType().name());
                 ps.setTimestamp(4, Timestamp.from(Instant.now()));
-                ps.setLong(5, nextSeq++);
                 ps.addBatch();
             }
             ps.executeBatch();
@@ -209,7 +192,7 @@ public class CustomJdbcChatMemoryRepository implements ChatMemoryRepository {
                 while (rs.next()) {
                     String content = rs.getString("content");
                     String type = rs.getString("type");
-                    messages.add(deserializeMessage(content, type));
+                    messages.add(buildMessage(content, type));
                 }
             }
         } catch (SQLException e) {
@@ -218,69 +201,20 @@ public class CustomJdbcChatMemoryRepository implements ChatMemoryRepository {
         return messages;
     }
 
-    private long nextSequenceId(String conversationId) {
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement ps = conn.prepareStatement(NEXT_SEQUENCE_SQL)) {
-            ps.setString(1, conversationId);
-            try (ResultSet rs = ps.executeQuery()) {
-                if (rs.next()) {
-                    return rs.getLong(1);
-                }
-            }
-        } catch (SQLException e) {
-            log.error("Error getting next sequence id", e);
-        }
-        return 1L;
-    }
 
-    private String serializeMessage(Message message) {
+    private Message buildMessage(String content, String type) {
         try {
-            return objectMapper.writeValueAsString(message);
-        } catch (Exception e) {
-            log.warn("Failed to serialize message, falling back to text", e);
-            return message.getText();
-        }
-    }
-
-    private Message deserializeMessage(String content, String type) {
-        try {
-            Class<? extends Message> targetClass = switch (type) {
-                case "USER" -> UserMessage.class;
-                case "ASSISTANT" -> AssistantMessage.class;
-                case "SYSTEM" -> SystemMessage.class;
-                case "TOOL" -> ToolResponseMessage.class;
-                default -> null;
-            };
-            if (targetClass != null) {
-                return objectMapper.readValue(content, targetClass);
-            }
+            return switch (type) {
+               case "USER" -> new UserMessage(content);
+               case "ASSISTANT" -> new AssistantMessage(content);
+               default -> new UserMessage(content);
+           };
         } catch (Exception e) {
             log.debug("JSON deserialization failed for type {}, falling back to text-only", type, e);
         }
-        String text = extractTextFallback(content);
-        return switch (type) {
-            case "USER" -> new UserMessage(text);
-            case "ASSISTANT" -> new AssistantMessage(text);
-            case "SYSTEM" -> new SystemMessage(text);
-            default -> new UserMessage(text);
-        };
+        return null;
     }
 
-    private String extractTextFallback(String content) {
-        if (!StringUtils.hasText(content)) {
-            return "";
-        }
-        try {
-            var node = objectMapper.readTree(content);
-            if (node.has("text")) {
-                return node.get("text").asText("");
-            }
-        } catch (Exception ignored) {
-        }
-        return content;
-    }
 
-    public void setObjectMapper(ObjectMapper objectMapper) {
-        this.objectMapper = objectMapper;
-    }
+
 }
