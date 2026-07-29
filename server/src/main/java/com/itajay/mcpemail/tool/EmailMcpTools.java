@@ -5,10 +5,16 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Component;
 
+
+/*
+自动配置将自动检测并注册来自以下来源的所有工具回调：
+    单个 ToolCallback bean    ToolCallback bean 列表  ToolCallbackProvider bean
+ */
 @Component
 public class EmailMcpTools {
 
@@ -17,7 +23,7 @@ public class EmailMcpTools {
     private final String senderAddress;
 
     public EmailMcpTools(JavaMailSender mailSender,
-                         @org.springframework.beans.factory.annotation.Value("${spring.mail.username}") String senderAddress) {
+                         @Value("${spring.mail.username}") String senderAddress) {
         this.mailSender = mailSender;
         this.senderAddress = senderAddress;
     }

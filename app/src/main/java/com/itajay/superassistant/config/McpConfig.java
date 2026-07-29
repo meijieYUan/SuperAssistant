@@ -20,5 +20,4 @@ public class McpConfig {
     // All MCP client auto-configuration is handled by:
     //   McpClientAutoConfiguration → creates McpSyncClient
     //   McpToolCallbackAutoConfiguration → creates SyncMcpToolCallbackProvider
-    // Just configure spring.ai.mcp.client.* in application.yml
 }

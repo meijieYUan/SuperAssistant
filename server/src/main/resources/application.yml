@@ -14,10 +14,11 @@ spring:
         instructions: "MCP Email Server — send emails via SMTP."
 
   mail:
-    host: ${SMTP_HOST:smtp.qq.com}
+    host: ${SMTP_HOST:smtp.163.com}
     port: ${SMTP_PORT:465}
-    username: ${SMTP_USER:}
+    username: ${SMTP_USER:Jay09290011@163.com}
     password: ${SMTP_PASSWORD:}
     properties:
       mail.smtp.auth: true
       mail.smtp.ssl.enable: true
+    default-encoding: UTF-8

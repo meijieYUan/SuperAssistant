@@ -15,6 +15,7 @@ public class SkillConfig {
                 .build();
         return SkillsAgentHook.builder()
                 .skillRegistry(skillRegistry)
+                .autoReload(true)
                 .build();
     }
 }
