@@ -3,27 +3,23 @@ package com.itajay.superassistant.app;
 import com.alibaba.cloud.ai.graph.NodeOutput;
 import com.alibaba.cloud.ai.graph.RunnableConfig;
 import com.alibaba.cloud.ai.graph.action.InterruptionMetadata;
-import com.alibaba.cloud.ai.graph.agent.AgentTool;
-import com.alibaba.cloud.ai.graph.agent.ReactAgent;
-import com.alibaba.cloud.ai.graph.agent.hook.hip.HumanInTheLoopHook;
-import com.alibaba.cloud.ai.graph.agent.hook.hip.ToolConfig;
-import com.alibaba.cloud.ai.graph.agent.hook.skills.SkillsAgentHook;
-import com.alibaba.cloud.ai.graph.checkpoint.savers.mysql.MysqlSaver;
-import com.itajay.superassistant.rag.RagAgent;
+import com.alibaba.cloud.ai.graph.agent.flow.agent.SupervisorAgent;
+import com.itajay.superassistant.entity.PlanTask;
+import com.itajay.superassistant.plan.PlanContextHolder;
 import com.itajay.superassistant.security.ApprovalDecision;
 import com.itajay.superassistant.security.HITLHelper;
-import com.itajay.superassistant.security.PendingApproval;
-import io.modelcontextprotocol.client.McpSyncClient;
+import com.itajay.superassistant.security.PendingInterruptionStore;
+import com.itajay.superassistant.service.PlanExecutionService;
+import com.itajay.superassistant.service.PlanService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.ai.mcp.SyncMcpToolCallbackProvider;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
 
 @RestController
 @RequestMapping("/api")
@@ -31,37 +27,19 @@ public class SuperAssistant {
 
     private static final Logger log = LoggerFactory.getLogger(SuperAssistant.class);
 
-    private final ReactAgent superiorAgent;
+    private final SupervisorAgent supervisorAgent;
+    private final PendingInterruptionStore pendingInterruptionStore;
+    private final PlanService planService;
+    private final PlanExecutionService planExecutionService;
 
-    private final ConcurrentHashMap<String, PendingInterruption> pendingInterruptions = new ConcurrentHashMap<>();
-
-    public static final String SYSTEM_PROMPT = "";
-
-    public SuperAssistant(ChatModel chatModel, RagAgent ragAgent,
-                          SkillsAgentHook skillsAgentHook,
-                          MysqlSaver mysqlSaver, McpSyncClient mcpSyncClient) {
-
-        SyncMcpToolCallbackProvider syncMcpToolCallbackProvider = new SyncMcpToolCallbackProvider(mcpSyncClient);
-
-        HumanInTheLoopHook humanInTheLoopHook = HumanInTheLoopHook.builder()
-                .approvalOn("writeFile", ToolConfig.builder()
-                        .description("文件写入需要人工审批，请确认是否执行").build())
-                .approvalOn("deleteFile", ToolConfig.builder()
-                        .description("文件删除需要人工审批，请确认是否执行").build())
-                .approvalOn("sendEmail", ToolConfig.builder()
-                        .description("邮件发送需要人工审批，发送前可编辑收件人/主题/正文").build())
-                .approvalOn("sendEmailBatch", ToolConfig.builder()
-                        .description("批量邮件发送需要人工审批，发送前可编辑收件人列表/主题/正文").build())
-                .build();
-
-        this.superiorAgent = ReactAgent.builder()
-                .model(chatModel)
-                .tools(AgentTool.getFunctionToolCallback(ragAgent.reactAgent))
-                .toolCallbackProviders(syncMcpToolCallbackProvider)
-                .hooks(skillsAgentHook, humanInTheLoopHook)
-                .systemPrompt(SYSTEM_PROMPT)
-                .saver(mysqlSaver)
-                .build();
+    public SuperAssistant(SupervisorAgent supervisorAgent,
+                          PendingInterruptionStore pendingInterruptionStore,
+                          PlanService planService,
+                          PlanExecutionService planExecutionService) {
+        this.supervisorAgent = supervisorAgent;
+        this.pendingInterruptionStore = pendingInterruptionStore;
+        this.planService = planService;
+        this.planExecutionService = planExecutionService;
     }
 
     @PostMapping("/chat/{threadId}")
@@ -69,10 +47,13 @@ public class SuperAssistant {
                                     @RequestBody ChatRequest request) {
         log.info("Chat request [thread={}]: {}", threadId, request.message());
 
+        LocalDateTime startedAt = LocalDateTime.now();
         try {
             RunnableConfig config = buildConfig(threadId);
+            config.context().put("threadId", threadId);
+            PlanContextHolder.setThreadId(threadId);
 
-            Optional<NodeOutput> result = superiorAgent.invokeAndGetOutput(
+            Optional<NodeOutput> result = supervisorAgent.invokeAndGetOutput(
                     request.message(), config);
 
             if (result.isEmpty()) {
@@ -82,31 +63,34 @@ public class SuperAssistant {
             NodeOutput output = result.get();
 
             if (output instanceof InterruptionMetadata metadata) {
-                pendingInterruptions.put(threadId,
-                        new PendingInterruption(config, metadata, request.message()));
-
-                List<PendingApproval> approvals = HITLHelper.getPendingApprovals(metadata);
-
-                log.info("Interrupted [thread={}], {} tool(s) need approval: {}",
-                        threadId, approvals.size(),
-                        approvals.stream().map(PendingApproval::toolName).toList());
-
-                return Map.of(
-                        "type", "INTERRUPTED",
-                        "threadId", threadId,
-                        "message", "以下高危操作需要审批",
-                        "pendingApprovals", approvals
-                );
+                pendingInterruptionStore.put(threadId, config, metadata, request.message(), null, null);
+                return interruptionResponse(threadId, metadata);
             }
 
             Object answer = output.state().value("output").orElse(output.toString());
-            pendingInterruptions.remove(threadId);
+            pendingInterruptionStore.remove(threadId);
+
+            PlanTask latestPlan = planService.getLatestByThreadId(threadId);
+            if (latestPlan != null
+                    && "AWAITING_APPROVAL".equals(latestPlan.getStatus())
+                    && latestPlan.getCreatedAt() != null
+                    && !latestPlan.getCreatedAt().isBefore(startedAt)) {
+                return planPendingResponse(latestPlan.getId());
+            }
+
+            Long planId = extractPlanId(String.valueOf(answer));
+            if (planId != null) {
+                return planPendingResponse(planId);
+            }
+
             return Map.of("type", "ANSWER", "threadId", threadId, "response", answer);
 
         } catch (Exception e) {
             log.error("Chat error [thread={}]", threadId, e);
-            pendingInterruptions.remove(threadId);
+            pendingInterruptionStore.remove(threadId);
             return Map.of("type", "ERROR", "message", e.getMessage());
+        } finally {
+            PlanContextHolder.clear();
         }
     }
 
@@ -116,7 +100,7 @@ public class SuperAssistant {
         log.info("Approve request [thread={}]: {} decision(s)", threadId,
                 request.decisions() != null ? request.decisions().size() : 0);
 
-        PendingInterruption pending = pendingInterruptions.get(threadId);
+        PendingInterruptionStore.PendingInterruption pending = pendingInterruptionStore.get(threadId);
         if (pending == null) {
             return Map.of("type", "ERROR", "message",
                     "没有待审批的中断请求, threadId=" + threadId);
@@ -130,10 +114,20 @@ public class SuperAssistant {
                     .addHumanFeedback(resolved)
                     .build();
 
-            Optional<NodeOutput> result = superiorAgent.invokeAndGetOutput(
+            if (pending.planId() != null) {
+                Map<String, Object> result = planExecutionService.resume(
+                        pending.planId(), threadId, resumeConfig, pending.inputMessage());
+                if (!"INTERRUPTED".equals(result.get("type"))) {
+                    pendingInterruptionStore.remove(threadId);
+                }
+                return result;
+            }
+
+            PlanContextHolder.setThreadId(threadId);
+            Optional<NodeOutput> result = supervisorAgent.invokeAndGetOutput(
                     pending.inputMessage(), resumeConfig);
 
-            pendingInterruptions.remove(threadId);
+            pendingInterruptionStore.remove(threadId);
 
             if (result.isEmpty()) {
                 return Map.of("type", "ERROR", "message", "Agent 恢复后返回空结果");
@@ -142,16 +136,8 @@ public class SuperAssistant {
             NodeOutput output = result.get();
 
             if (output instanceof InterruptionMetadata metadata) {
-                pendingInterruptions.put(threadId,
-                        new PendingInterruption(resumeConfig, metadata, pending.inputMessage()));
-
-                List<PendingApproval> approvals = HITLHelper.getPendingApprovals(metadata);
-                return Map.of(
-                        "type", "INTERRUPTED",
-                        "threadId", threadId,
-                        "message", "仍有高危操作需要审批",
-                        "pendingApprovals", approvals
-                );
+                pendingInterruptionStore.put(threadId, resumeConfig, metadata, pending.inputMessage(), null, null);
+                return interruptionResponse(threadId, metadata);
             }
 
             Object answer = output.state().value("output").orElse(output.toString());
@@ -159,26 +145,52 @@ public class SuperAssistant {
 
         } catch (Exception e) {
             log.error("Approve error [thread={}]", threadId, e);
-            pendingInterruptions.remove(threadId);
+            pendingInterruptionStore.remove(threadId);
             return Map.of("type", "ERROR", "message", e.getMessage());
+        } finally {
+            PlanContextHolder.clear();
         }
     }
 
     private RunnableConfig buildConfig(String threadId) {
-        PendingInterruption pending = pendingInterruptions.get(threadId);
+        PendingInterruptionStore.PendingInterruption pending = pendingInterruptionStore.get(threadId);
         if (pending != null) {
             return pending.config();
         }
         return RunnableConfig.builder().threadId(threadId).build();
     }
 
+    private Map<String, Object> interruptionResponse(String threadId, InterruptionMetadata metadata) {
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("type", "INTERRUPTED");
+        response.put("threadId", threadId);
+        response.put("message", "以下高危操作需要审批");
+        response.put("pendingApprovals", HITLHelper.getPendingApprovals(metadata));
+        return response;
+    }
+
+    private Map<String, Object> planPendingResponse(Long planId) {
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("type", "PLAN_PENDING");
+        response.put("planId", planId);
+        response.putAll(planService.getPlanResponse(planId));
+        return response;
+    }
+
+    private Long extractPlanId(String text) {
+        int index = text.indexOf("PLAN_PENDING:");
+        if (index < 0) {
+            return null;
+        }
+        String rest = text.substring(index + "PLAN_PENDING:".length()).trim();
+        int end = 0;
+        while (end < rest.length() && Character.isDigit(rest.charAt(end))) {
+            end++;
+        }
+        return end == 0 ? null : Long.valueOf(rest.substring(0, end));
+    }
+
     public record ChatRequest(String message) {}
 
     public record ApproveRequest(List<ApprovalDecision> decisions) {}
-
-    private record PendingInterruption(
-            RunnableConfig config,
-            InterruptionMetadata metadata,
-            String inputMessage
-    ) {}
 }
