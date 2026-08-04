@@ -17,7 +17,7 @@ public class WebSearchTool {
         this.webSearchService = webSearchService;
     }
 
-    @Tool(description = "Search the web for information using DuckDuckGo. Returns top search result snippets. Use this when you need up-to-date information or facts not in your training data.")
+    @Tool(description = "Search the web using Bing. Returns top search result snippets with titles and URLs. Use this when you need up-to-date information, current events, or facts not in your training data.")
     public String webSearch(
             @ToolParam(description = "Search query string") String query) {
         log.info("Web search: {}", query);

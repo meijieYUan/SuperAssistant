@@ -3,9 +3,11 @@ package com.itajay.superassistant.rag;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.rag.Query;
 import org.springframework.ai.rag.preretrieval.query.expansion.MultiQueryExpander;
+import org.springframework.stereotype.Component;
 
 import java.util.List;
 
+@Component
 public class QueryExpansion {
     public final MultiQueryExpander multiQueryExpander;
 

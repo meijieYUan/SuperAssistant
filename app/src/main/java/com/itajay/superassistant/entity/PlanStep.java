@@ -16,6 +16,8 @@ public class PlanStep {
 
     private Integer stepNo;
 
+    private String stepKey;
+
     private String agentName;
 
     private String goal;
@@ -46,6 +48,8 @@ public class PlanStep {
     public void setPlanId(Long planId) { this.planId = planId; }
     public Integer getStepNo() { return stepNo; }
     public void setStepNo(Integer stepNo) { this.stepNo = stepNo; }
+    public String getStepKey() { return stepKey; }
+    public void setStepKey(String stepKey) { this.stepKey = stepKey; }
     public String getAgentName() { return agentName; }
     public void setAgentName(String agentName) { this.agentName = agentName; }
     public String getGoal() { return goal; }

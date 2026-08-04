@@ -5,8 +5,9 @@ import org.springframework.ai.rag.Query;
 import org.springframework.ai.rag.preretrieval.query.transformation.CompressionQueryTransformer;
 import org.springframework.ai.rag.preretrieval.query.transformation.QueryTransformer;
 import org.springframework.ai.rag.preretrieval.query.transformation.RewriteQueryTransformer;
+import org.springframework.stereotype.Component;
 
-
+@Component
 public class QueryTransformation{
     public final CompressionQueryTransformer queryTransformer;
     public final RewriteQueryTransformer rewriteQueryTransformer;

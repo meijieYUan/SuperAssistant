@@ -64,4 +64,34 @@ public class TodoService {
     public void save(TodoTask task) {
         todoTaskMapper.insert(task);
     }
+
+    public TodoTask getById(Long id) {
+        return todoTaskMapper.selectById(id);
+    }
+
+    public boolean update(TodoTask task) {
+        return todoTaskMapper.updateById(task) > 0;
+    }
+
+    public boolean deleteById(Long id) {
+        return todoTaskMapper.deleteById(id) > 0;
+    }
+
+    public TodoTask createTask(String title, String description, String priority, String dueDateStr, String assignedTo) {
+        TodoTask task = new TodoTask();
+        task.setTitle(title);
+        task.setDescription(description);
+        task.setPriority(priority != null ? priority.toUpperCase() : "MEDIUM");
+        task.setStatus("PENDING");
+        task.setAssignedTo(assignedTo);
+        if (dueDateStr != null && !dueDateStr.isBlank()) {
+            try {
+                task.setDueDate(LocalDateTime.parse(dueDateStr));
+            } catch (Exception e) {
+                log.warn("Failed to parse due date: {}", dueDateStr);
+            }
+        }
+        todoTaskMapper.insert(task);
+        return task;
+    }
 }

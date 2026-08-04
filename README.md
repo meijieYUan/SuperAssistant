@@ -127,10 +127,22 @@ SuperAssistant/
 
 ### 1. 多智能体协作
 
-- **SuperiorAgent（主 Agent）**：统一入口，路由用户请求，调度工具
-- **RagAgent（子 Agent）**：专注知识库检索增强问答，被 SuperiorAgent 作为 Tool 调用
-- **Hooks 链**：SkillsAgentHook → HumanInTheLoopHook → 其他，按顺序拦截 Agent 生命周期
-- **Checkpoint**：MysqlSaver 持久化 StateGraph 状态，支持中断恢复
+- **SupervisorAgent（主 Agent）**：基于 Spring AI Alibaba `SupervisorAgent` 类型实现统一入口和任务路由，可把请求路由到 `rag-agent`、`research-agent`、`writer-agent`、`reviewer-agent`。
+- **PlanTool**：复杂任务先只生成计划（`plan_task` / `plan_step`），返回 `PLAN_PENDING`；用户批准后才开始执行。
+- **并行执行**：执行器按 `dependsOn` 计算可并行步骤，互不依赖的子任务并发执行。
+- **审查修订循环**：ReviewerAgent 返回 `REVISE` 时，自动追加“修订 + 复审”步骤，最多修订 2 轮。
+- **Agent 运行日志**：`agent_run_log` 记录每次 Agent 运行、计划步骤、输入输出与状态。
+- **SSE 进度推送**：`GET /api/plans/{planId}/events` 实时推送计划与步骤状态。
+- **Checkpoint**：MysqlSaver 持久化 StateGraph 状态，支持中断恢复。
+
+计划生命周期：
+
+```
+用户请求 → SupervisorAgent → PlanTool 生成计划
+       → PLAN_PENDING → 用户批准/拒绝
+       → APPROVED → 并行执行子 Agent → Reviewer 审查
+       → REVISE 时自动修订（最多 2 轮）→ COMPLETED / FAILED
+```
 
 ### 2. RAG 检索增强生成
 
@@ -239,6 +251,17 @@ SuperAssistant/
 | GET | `/api/todos/overdue` | `List<TodoTask>` |
 | POST | `/api/todos/query` | `{status, priority, keyword}` → `List<TodoTask>` |
 
+### 多智能体计划
+
+| Method | Path | Response |
+|--------|------|----------|
+| GET | `/api/plans/{planId}` | 计划、步骤与状态 |
+| POST | `/api/plans/{planId}/approve` | 批准计划并开始执行 |
+| POST | `/api/plans/{planId}/reject` | 拒绝计划，可附原因 |
+| POST | `/api/plans/{planId}/revise` | 根据拒绝原因重新生成计划 |
+| GET | `/api/plans/{planId}/events` | SSE 实时进度事件流 |
+| GET | `/api/plans/{planId}/runs` | Agent 运行日志 |
+
 ### MCP Email Server
 
 独立进程，端口 8081，通过 Spring AI MCP SSE 自动暴露工具回调给主应用。
@@ -267,6 +290,19 @@ spring.datasource.password: 123456
 ```
 Milvus    → localhost:9090
 MySQL     → localhost:3306 (database: superAssistant)
+```
+
+也可以直接用项目根目录的 Docker Compose 启动 MySQL + Milvus 及其依赖：
+
+```bash
+docker compose up -d
+docker compose ps
+```
+
+**初始化计划/日志表**：
+
+```bash
+mysql -u root -p superassistant < app/src/main/resources/sql/plan.sql
 ```
 
 ## 快速启动
@@ -330,6 +366,9 @@ POST /api/chat/test-001/approve
 | 表 | 用途 |
 |---|------|
 | `todo_task` | 待办事项，MyBatis Plus 管理 |
+| `plan_task` | 多智能体执行计划 |
+| `plan_step` | 计划步骤与执行状态 |
+| `agent_run_log` | Agent 运行日志 |
 | `CUSTOM_CHAT_MEMORY` | 自定义对话记忆，JDBC 直连 |
 | `SPRING_AI_CHAT_MEMORY_*` | Spring AI 框架自动管理（checkpoint 等） |
 

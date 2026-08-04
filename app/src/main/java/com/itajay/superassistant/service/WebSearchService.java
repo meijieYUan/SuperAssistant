@@ -2,6 +2,8 @@ package com.itajay.superassistant.service;
 
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
+import org.jsoup.select.Elements;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -29,24 +31,25 @@ public class WebSearchService {
     }
 
     /**
-     * Search the web using DuckDuckGo HTML (no API key required).
+     * Search the web using Bing (cn.bing.com, accessible in China).
      * Returns the top search result snippets.
      */
     public String search(String query) throws Exception {
         String encodedQuery = URLEncoder.encode(query, StandardCharsets.UTF_8);
-        String url = "https://html.duckduckgo.com/html/?q=" + encodedQuery;
+        String url = "https://cn.bing.com/search?q=" + encodedQuery + "&setlang=zh-cn";
 
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(url))
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) SuperAssistant/1.0")
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
                 .timeout(Duration.ofSeconds(15))
                 .GET()
                 .build();
 
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
-        if (response.statusCode() == 200) {
-            return parseDuckDuckGoResults(response.body());
+        if (response.statusCode() == 200 || response.statusCode() == 302) {
+            return parseBingResults(response.body());
         }
         return "Search returned status: " + response.statusCode();
     }
@@ -56,7 +59,7 @@ public class WebSearchService {
      */
     public String crawl(String url) throws IOException {
         Document doc = Jsoup.connect(url)
-                .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) SuperAssistant/1.0")
+                .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
                 .timeout(15000)
                 .get();
 
@@ -74,9 +77,17 @@ public class WebSearchService {
         return String.format("Title: %s\n\nContent: %s", title, bodyText);
     }
 
-    private String parseDuckDuckGoResults(String html) {
+    private String parseBingResults(String html) {
         Document doc = Jsoup.parse(html);
-        var results = doc.select(".result");
+        Elements results = doc.select("li.b_algo");
+
+        if (results.isEmpty()) {
+            // Fallback: try alternative Bing result selectors
+            results = doc.select("ol#b_results > li.b_algo");
+        }
+        if (results.isEmpty()) {
+            results = doc.select(".b_algo");
+        }
 
         if (results.isEmpty()) {
             return "No search results found.";
@@ -84,20 +95,21 @@ public class WebSearchService {
 
         StringBuilder sb = new StringBuilder("Search results:\n\n");
         int count = 0;
-        for (var result : results) {
+        for (Element result : results) {
             if (count >= 8) break;
-            var title = result.select(".result__title");
-            var snippet = result.select(".result__snippet");
-            var link = result.select(".result__url");
 
-            if (!title.isEmpty()) {
-                sb.append(count + 1).append(". **").append(title.text().trim()).append("**\n");
+            Element titleEl = result.selectFirst("h2 a");
+            Element snippetEl = result.selectFirst(".b_caption p, .b_lineclamp2, .b_lineclamp4");
+            Element linkEl = result.selectFirst("cite");
+
+            if (titleEl != null) {
+                sb.append(count + 1).append(". **").append(titleEl.text().trim()).append("**\n");
             }
-            if (!snippet.isEmpty()) {
-                sb.append("   ").append(snippet.text().trim()).append("\n");
+            if (snippetEl != null) {
+                sb.append("   ").append(snippetEl.text().trim()).append("\n");
             }
-            if (!link.isEmpty()) {
-                sb.append("   URL: ").append(link.text().trim()).append("\n");
+            if (linkEl != null) {
+                sb.append("   URL: ").append(linkEl.text().trim()).append("\n");
             }
             sb.append("\n");
             count++;

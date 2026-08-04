@@ -25,6 +25,10 @@ public class PlanStepService {
                         .orderByAsc(PlanStep::getStepNo));
     }
 
+    public PlanStep getStep(Long stepId) {
+        return planStepMapper.selectById(stepId);
+    }
+
     public Optional<PlanStep> findNextPending(Long planId, String agentName) {
         return planStepMapper.selectList(
                         new LambdaQueryWrapper<PlanStep>()
@@ -55,6 +59,47 @@ public class PlanStepService {
                                 .orderByAsc(PlanStep::getStepNo)
                                 .last("LIMIT 1"))
                 .stream().findFirst();
+    }
+
+    public int maxStepNo(Long planId) {
+        return planStepMapper.selectList(
+                        new LambdaQueryWrapper<PlanStep>()
+                                .eq(PlanStep::getPlanId, planId)
+                                .orderByDesc(PlanStep::getStepNo)
+                                .last("LIMIT 1"))
+                .stream().findFirst()
+                .map(PlanStep::getStepNo)
+                .orElse(0);
+    }
+
+    public long countByStepKeyPrefix(Long planId, String prefix) {
+        return planStepMapper.selectCount(
+                new LambdaQueryWrapper<PlanStep>()
+                        .eq(PlanStep::getPlanId, planId)
+                        .likeRight(PlanStep::getStepKey, prefix));
+    }
+
+    public PlanStep insertStep(Long planId,
+                               int stepNo,
+                               String stepKey,
+                               String agentName,
+                               String goal,
+                               String acceptanceCriteria,
+                               String dependsOn) {
+        PlanStep step = new PlanStep();
+        step.setPlanId(planId);
+        step.setStepNo(stepNo);
+        step.setStepKey(stepKey);
+        step.setAgentName(agentName);
+        step.setGoal(goal);
+        step.setAcceptanceCriteria(acceptanceCriteria);
+        step.setDependsOn(dependsOn);
+        step.setStatus("PENDING");
+        step.setRetryCount(0);
+        step.setCreatedAt(LocalDateTime.now());
+        step.setUpdatedAt(LocalDateTime.now());
+        planStepMapper.insert(step);
+        return step;
     }
 
     public void markRunning(Long stepId) {

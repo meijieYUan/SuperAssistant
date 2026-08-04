@@ -1,7 +1,7 @@
 package com.itajay.superassistant.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import com.itajay.superassistant.entity.PlanStep;
 import com.itajay.superassistant.entity.PlanTask;
 import com.itajay.superassistant.mapper.PlanStepMapper;
@@ -11,6 +11,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -69,6 +70,7 @@ public class PlanService {
         this.objectMapper = objectMapper;
     }
 
+    @Transactional
     public PlanTask createPlan(String threadId, String objective) {
         String generated = generatePlanJson(objective, null);
         PlanDraft draft = parseAndValidate(generated, objective);
@@ -86,11 +88,45 @@ public class PlanService {
         task.setUpdatedAt(LocalDateTime.now());
         planTaskMapper.insert(task);
 
+        persistSteps(task, draft);
+
+        log.info("Created plan [id={}, thread={}, steps={}]", task.getId(), threadId, draft.steps().size());
+        return task;
+    }
+
+    @Transactional
+    public PlanTask revisePlan(Long planId, String feedback) {
+        PlanTask task = getPlan(planId);
+        if (!"REJECTED".equals(task.getStatus())) {
+            throw new IllegalArgumentException("计划状态不是 REJECTED，无法修订: " + task.getStatus());
+        }
+
+        String revisionInput = task.getObjective() + "\n\n用户修订意见：\n" + feedback;
+        PlanDraft draft = parseAndValidate(generatePlanJson(revisionInput, null), revisionInput);
+
+        planStepMapper.delete(
+                new LambdaQueryWrapper<PlanStep>().eq(PlanStep::getPlanId, planId));
+
+        task.setPlanJson(toJson(draft));
+        task.setStatus("AWAITING_APPROVAL");
+        task.setErrorMessage(null);
+        task.setResult(null);
+        task.setApprovedAt(null);
+        task.setUpdatedAt(LocalDateTime.now());
+        planTaskMapper.updateById(task);
+
+        persistSteps(task, draft);
+        log.info("Revised plan [id={}, steps={}]", planId, draft.steps().size());
+        return task;
+    }
+
+    private void persistSteps(PlanTask task, PlanDraft draft) {
         int stepNo = 1;
         for (PlanDraft.Step step : draft.steps()) {
             PlanStep entity = new PlanStep();
             entity.setPlanId(task.getId());
             entity.setStepNo(stepNo++);
+            entity.setStepKey(step.id());
             entity.setAgentName(step.agent());
             entity.setGoal(step.goal());
             entity.setAcceptanceCriteria(step.acceptanceCriteria());
@@ -101,9 +137,6 @@ public class PlanService {
             entity.setUpdatedAt(LocalDateTime.now());
             planStepMapper.insert(entity);
         }
-
-        log.info("Created plan [id={}, thread={}, steps={}]", task.getId(), threadId, draft.steps().size());
-        return task;
     }
 
     public PlanTask getPlan(Long planId) {
@@ -194,8 +227,14 @@ public class PlanService {
             }
             if (step.dependsOn() != null) {
                 for (String dep : step.dependsOn()) {
+                    if (dep == null || dep.isBlank()) {
+                        throw new IllegalArgumentException("Step dependency is empty: " + step.id());
+                    }
                     if (!ids.contains(dep)) {
                         throw new IllegalArgumentException("Unknown dependency: " + dep);
+                    }
+                    if (step.id().equals(dep)) {
+                        throw new IllegalArgumentException("Step cannot depend on itself: " + step.id());
                     }
                 }
             }

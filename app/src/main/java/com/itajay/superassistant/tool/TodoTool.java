@@ -72,16 +72,68 @@ public class TodoTool {
         return "Tasks assigned to " + assignedTo + " (" + tasks.size() + "):\n\n" + formatTaskList(tasks);
     }
 
+    @Tool(description = "Create a new todo task. Due date format: yyyy-MM-ddTHH:mm:ss (e.g. 2026-08-05T18:00:00)")
+    public String createTodo(
+            @ToolParam(description = "Task title") String title,
+            @ToolParam(description = "Task description (optional)") String description,
+            @ToolParam(description = "Priority: LOW, MEDIUM, HIGH, URGENT") String priority,
+            @ToolParam(description = "Due date in format yyyy-MM-ddTHH:mm:ss (optional)") String dueDate,
+            @ToolParam(description = "Person assigned to this task (optional)") String assignedTo) {
+        log.info("Creating todo: title={}, priority={}", title, priority);
+        TodoTask task = todoService.createTask(title, description, priority, dueDate, assignedTo);
+        return "Todo task created successfully!\n" + formatTask(task);
+    }
+
+    @Tool(description = "Update an existing todo task. Only provide fields you want to change; null/empty fields will be ignored.")
+    public String updateTodo(
+            @ToolParam(description = "ID of the task to update") Long id,
+            @ToolParam(description = "New title (optional)") String title,
+            @ToolParam(description = "New status: PENDING, IN_PROGRESS, COMPLETED, CANCELLED (optional)") String status,
+            @ToolParam(description = "New priority: LOW, MEDIUM, HIGH, URGENT (optional)") String priority,
+            @ToolParam(description = "New due date yyyy-MM-ddTHH:mm:ss (optional)") String dueDate,
+            @ToolParam(description = "New description (optional)") String description) {
+        log.info("Updating todo: id={}", id);
+        TodoTask task = todoService.getById(id);
+        if (task == null) {
+            return "Todo task with ID " + id + " not found.";
+        }
+        if (title != null && !title.isBlank()) task.setTitle(title);
+        if (status != null && !status.isBlank()) task.setStatus(status.toUpperCase());
+        if (priority != null && !priority.isBlank()) task.setPriority(priority.toUpperCase());
+        if (description != null && !description.isBlank()) task.setDescription(description);
+        if (dueDate != null && !dueDate.isBlank()) {
+            try { task.setDueDate(java.time.LocalDateTime.parse(dueDate)); } catch (Exception ignored) {}
+        }
+        todoService.update(task);
+        return "Todo task updated successfully!\n" + formatTask(task);
+    }
+
+    @Tool(description = "Delete a todo task by its ID")
+    public String deleteTodo(
+            @ToolParam(description = "ID of the task to delete") Long id) {
+        log.info("Deleting todo: id={}", id);
+        TodoTask task = todoService.getById(id);
+        if (task == null) {
+            return "Todo task with ID " + id + " not found.";
+        }
+        todoService.deleteById(id);
+        return "Todo task deleted: [" + id + "] " + task.getTitle();
+    }
+
     private String formatTaskList(List<TodoTask> tasks) {
         return tasks.stream()
-                .map(t -> String.format("[%s] %s | Priority: %s | Status: %s | Due: %s | Assigned: %s%n   %s",
-                        t.getId(),
-                        t.getTitle(),
-                        t.getPriority(),
-                        t.getStatus(),
-                        t.getDueDate() != null ? t.getDueDate().toString() : "N/A",
-                        t.getAssignedTo() != null ? t.getAssignedTo() : "Unassigned",
-                        t.getDescription() != null ? t.getDescription() : ""))
+                .map(this::formatTask)
                 .collect(Collectors.joining("\n\n"));
+    }
+
+    private String formatTask(TodoTask t) {
+        return String.format("[%s] %s | Priority: %s | Status: %s | Due: %s | Assigned: %s%n   %s",
+                t.getId(),
+                t.getTitle(),
+                t.getPriority(),
+                t.getStatus(),
+                t.getDueDate() != null ? t.getDueDate().toString() : "N/A",
+                t.getAssignedTo() != null ? t.getAssignedTo() : "Unassigned",
+                t.getDescription() != null ? t.getDescription() : "");
     }
 }

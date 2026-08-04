@@ -4,6 +4,7 @@ import com.alibaba.cloud.ai.graph.checkpoint.savers.mysql.MysqlSaver;
 import org.springframework.boot.jdbc.DataSourceBuilder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 
 import javax.sql.DataSource;
 
@@ -18,6 +19,7 @@ public class SaverConfig {
     }
 
     @Bean
+    @Primary
     public DataSource dataSource() {
         return DataSourceBuilder.create()
                 .url("jdbc:mysql://localhost:3306/superassistant")

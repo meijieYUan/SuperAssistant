@@ -33,6 +33,11 @@ public class ModelConfig {
     }
 
     @Bean
+    public ObservationRegistry observationRegistry() {
+        return ObservationRegistry.create();
+    }
+
+    @Bean
     public ChatModel chatModel(DeepSeekApi deepSeekApi,
                                 ToolCallingManager toolCallingManager,
                                 ObservationRegistry observationRegistry) {

@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS plan_step (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     plan_id BIGINT NOT NULL COMMENT 'plan_task.id',
     step_no INT NOT NULL COMMENT '步骤序号',
+    step_key VARCHAR(50) COMMENT '计划内步骤唯一标识，如 s1',
     agent_name VARCHAR(50) NOT NULL COMMENT '负责子Agent名称',
     goal TEXT NOT NULL COMMENT '子任务目标',
     acceptance_criteria TEXT COMMENT '验收标准',
@@ -33,4 +34,20 @@ CREATE TABLE IF NOT EXISTS plan_step (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_step_plan (plan_id),
     INDEX idx_step_status (plan_id, status, step_no)
+);
+
+CREATE TABLE IF NOT EXISTS agent_run_log (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    thread_id VARCHAR(100),
+    plan_id BIGINT,
+    step_id BIGINT,
+    agent_name VARCHAR(50) NOT NULL,
+    phase VARCHAR(30) NOT NULL COMMENT 'START/END',
+    status VARCHAR(30),
+    input_summary TEXT,
+    output_summary TEXT,
+    error_message TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_agent_run_thread (thread_id, created_at),
+    INDEX idx_agent_run_plan (plan_id, step_id)
 );

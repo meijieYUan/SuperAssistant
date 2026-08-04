@@ -2,7 +2,15 @@ spring:
   application:
     name: super-assistant-app
 
+  autoconfigure:
+    exclude:
+      - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeMultimodalEmbeddingAutoConfiguration
+      - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeChatAutoConfiguration
+
   ai:
+    dashscope:
+      api-key: ${EMBEDDING_KEY}
+
     deepseek:
       api-key: ${DEEPSEEK_API_KEY}
       base-url: https://api.deepseek.com
@@ -25,10 +33,10 @@ spring:
             email-server:
     ##将 Base URL 和 sse-endpoint 拼接起来，形成完整的访问地址：
               url: http://localhost:8081
-              sse-endpoint: /mcp/sse
+              sse-endpoint: /sse
 
   datasource:
-    url: jdbc:mysql://localhost:3306/superAssistant
+    url: jdbc:mysql://localhost:3306/superassistant
     driver-class-name: com.mysql.cj.jdbc.Driver
     username: root
     password: 123456

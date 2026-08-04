@@ -20,28 +20,28 @@
         <java.version>21</java.version>
         <spring-ai-alibaba.version>2.0.0-M1.1</spring-ai-alibaba.version>
         <spring-ai.version>2.0.0-M1</spring-ai.version>
-        <mybatis-plus.version>3.5.9</mybatis-plus.version>
+        <mybatis-plus.version>3.5.17</mybatis-plus.version>
     </properties>
     <dependencies>
         <!-- Source: https://mvnrepository.com/artifact/org.springframework.ai/spring-ai-starter-model-chat-memory-repository-jdbc -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-starter-model-chat-memory-repository-jdbc</artifactId>
-            <version>2.0.0</version>
+            <version>${spring-ai.version}</version>
             <scope>compile</scope>
         </dependency>
         <!-- Source: https://mvnrepository.com/artifact/org.springframework.ai/spring-ai-markdown-document-reader -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-markdown-document-reader</artifactId>
-            <version>2.0.0</version>
+            <version>${spring-ai.version}</version>
             <scope>compile</scope>
         </dependency>
         <!-- Source: https://mvnrepository.com/artifact/org.springframework.ai/spring-ai-markdown-document-reader -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-pdf-document-reader</artifactId>
-            <version>2.0.0</version>
+            <version>${spring-ai.version}</version>
             <scope>compile</scope>
         </dependency>
         <!-- Source: https://mvnrepository.com/artifact/org.projectlombok/lombok -->
@@ -62,7 +62,7 @@
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-milvus-store</artifactId>
-            <version>2.0.0</version>
+            <version>${spring-ai.version}</version>
             <scope>compile</scope>
         </dependency>
         <dependency>
@@ -95,24 +95,7 @@
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-starter-mcp-client-webflux</artifactId>
-            <version>1.0.0</version>
-            <exclusions>
-                <exclusion>
-                    <groupId>org.springframework.ai</groupId>
-                    <artifactId>spring-ai-model</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.springframework.boot</groupId>
-                    <artifactId>spring-boot-starter</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
-
-        <!-- Spring AI MCP Server Starter (WebMVC, Streamable HTTP) -->
-        <dependency>
-            <groupId>org.springframework.ai</groupId>
-            <artifactId>spring-ai-starter-mcp-server-webmvc</artifactId>
-            <version>1.0.0</version>
+            <version>${spring-ai.version}</version>
             <exclusions>
                 <exclusion>
                     <groupId>org.springframework.ai</groupId>
@@ -165,6 +148,7 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <configuration>
+                    <parameters>true</parameters>
                     <source>21</source>
                     <target>21</target>
                     <release>21</release>
