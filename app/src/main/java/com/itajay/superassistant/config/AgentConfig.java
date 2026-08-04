@@ -110,6 +110,7 @@ public class AgentConfig {
                 .toolCallbackProviders(mcpToolCallbackProvider)
                 .hooks(memoryHook, skillsAgentHook, humanInTheLoopHook)
                 .saver(mysqlSaver)
+                .outputKey("output")
                 .build();
 
         List<Agent> subAgents = List.of(

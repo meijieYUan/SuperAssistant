@@ -25,13 +25,11 @@ spring:
         name: super-assistant
         version: 1.0.0
         type: SYNC
-    ##当启用工具回调时（默认行为），所有 MCP 客户端的已注册 MCP 工具都作为 ToolCallbackProvider 实例提供
         toolcallback:
           enabled: true
         sse:
           connections:
             email-server:
-    ##将 Base URL 和 sse-endpoint 拼接起来，形成完整的访问地址：
               url: http://localhost:8081
               sse-endpoint: /sse
 
