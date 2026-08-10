@@ -2,10 +2,6 @@ package com.itajay.superassistant.agent;
 
 import com.alibaba.cloud.ai.graph.agent.ReactAgent;
 import com.alibaba.cloud.ai.graph.agent.hook.skills.SkillsAgentHook;
-import com.itajay.superassistant.plan.PlanStepHook;
-import com.itajay.superassistant.service.AgentRunLogService;
-import com.itajay.superassistant.service.PlanService;
-import com.itajay.superassistant.service.PlanStepService;
 import com.itajay.superassistant.tool.WebSearchTool;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.stereotype.Component;
@@ -17,10 +13,7 @@ public class ResearchAgent {
 
     public ResearchAgent(WebSearchTool webSearchTool,
                          ChatModel chatModel,
-                         SkillsAgentHook skillsAgentHook,
-                         PlanStepService planStepService,
-                         PlanService planService,
-                         AgentRunLogService agentRunLogService) {
+                         SkillsAgentHook skillsAgentHook) {
         this.reactAgent = ReactAgent.builder()
                 .name("research-agent")
                 .description("科研论文与专业资料调研 agent：使用 research-writing skill 中的论文检索网站、筛选标准和信息提取规则，结合网页搜索与网页抓取输出带来源链接的调研材料。")
@@ -37,8 +30,7 @@ public class ResearchAgent {
                         输出格式：Markdown 调研材料，末尾附参考文献列表。
                         """)
                 .methodTools(webSearchTool)
-                .hooks(skillsAgentHook, new PlanStepHook(
-                        "research-agent", planStepService, planService, agentRunLogService))
+                .hooks(skillsAgentHook)
                 .build();
     }
 }

@@ -3,8 +3,10 @@
     <div class="view-header"><h2>Plan Management</h2></div>
     <div class="plan-load">
       <input v-model="planId" placeholder="Plan ID" class="thread-input" @keydown.enter="loadPlan" />
-      <button class="btn-primary btn-sm" @click="loadPlan" :disabled="!planId">Load</button>
+      <button class="btn-primary btn-sm" @click="loadPlan" :disabled="!planId || planLoading">Load</button>
     </div>
+
+    <div v-if="planLoading" class="plan-status-msg"><span class="loading"></span> Loading...</div>
 
     <div v-if="plan" class="plan-detail card">
       <div class="plan-status-row">
@@ -18,7 +20,7 @@
         <div v-for="s in plan.steps" :key="s.stepNo" class="step-item">
           <span class="step-no">{{ s.stepNo }}</span>
           <div class="step-info">
-            <span class="step-agent">{{ s.agentName }}</span>
+            <span class="step-agent">{{ s.agentName || '待分配' }}</span>
             <span class="step-goal">{{ s.goal }}</span>
             <span :class="'badge ' + stepStatusBadge(s.status)">{{ s.status }}</span>
             <span v-if="s.outputSummary" class="step-output">{{ s.outputSummary }}</span>
@@ -37,8 +39,9 @@
       </div>
     </div>
 
-    <div v-if="!plan && planId" class="empty-state"><GitBranch :size="36" /><p>No plan found for ID: {{ planId }}</p></div>
-    <div v-if="!planId" class="empty-state"><GitBranch :size="36" /><p>Enter a Plan ID to view details</p></div>
+    <div v-if="planError" class="plan-status-msg error">{{ planError }}</div>
+    <div v-if="!plan && !planId && !planLoading && !planError" class="empty-state"><GitBranch :size="36" /><p>Enter a Plan ID to view details</p></div>
+    <div v-if="!plan && planId && !planLoading && !planError" class="empty-state"><GitBranch :size="36" /><p>No plan found for ID: {{ planId }}</p></div>
   </div>
 </template>
 
@@ -49,10 +52,17 @@ import { getPlan } from '../api'
 
 const planId = ref('')
 const plan = ref(null)
+const planLoading = ref(false)
+const planError = ref('')
 
 function loadPlan() {
   plan.value = null
-  getPlan(planId.value).then(r => { plan.value = r.data }).catch(() => { plan.value = null })
+  planError.value = ''
+  planLoading.value = true
+  getPlan(planId.value)
+    .then(r => { plan.value = r.data })
+    .catch(err => { plan.value = null; planError.value = err.response?.data?.message || 'Failed to load plan' })
+    .finally(() => { planLoading.value = false })
 }
 
 function planStatusBadge(s) {
@@ -84,5 +94,7 @@ function stepStatusBadge(s) {
 .run-agent { font-weight: 600; color: var(--accent); min-width: 100px; }
 .run-phase { color: var(--text2); min-width: 50px; }
 .run-time { font-size: 11px; color: var(--text2); margin-left: auto; }
+.plan-status-msg { display: flex; align-items: center; gap: 8px; padding: 12px 0; font-size: 13px; color: var(--text2); }
+.plan-status-msg.error { color: var(--red); }
 .empty-state { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 60px 0; color: var(--text2); }
 </style>

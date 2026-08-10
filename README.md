@@ -128,9 +128,10 @@ SuperAssistant/
 ### 1. 多智能体协作
 
 - **SupervisorAgent（主 Agent）**：基于 Spring AI Alibaba `SupervisorAgent` 类型实现统一入口和任务路由，可把请求路由到 `rag-agent`、`research-agent`、`writer-agent`、`reviewer-agent`。
-- **PlanTool**：复杂任务先只生成计划（`plan_task` / `plan_step`），返回 `PLAN_PENDING`；用户批准后才开始执行。
+- **PlanTool**：只负责把复杂任务拆解成带验收标准的小步骤（计划不含任何执行者信息），返回 `PLAN_PENDING`；用户批准后才开始执行。
+- **SupervisorAgent 分配**：批准后所有步骤统一交给 SuperiorAgent，由它决定主 Agent 直接完成或委派专业子 Agent；子 Agent 在运行时认领未分配步骤。
 - **并行执行**：执行器按 `dependsOn` 计算可并行步骤，互不依赖的子任务并发执行。
-- **审查修订循环**：ReviewerAgent 返回 `REVISE` 时，自动追加“修订 + 复审”步骤，最多修订 2 轮。
+- **审查修订循环**：计划末尾自动追加整体验收任务，由 ReviewerAgent 判断是否完成；返回 `REVISE` 时自动追加“修订 + 复审”步骤，最多修订 2 轮。
 - **Agent 运行日志**：`agent_run_log` 记录每次 Agent 运行、计划步骤、输入输出与状态。
 - **SSE 进度推送**：`GET /api/plans/{planId}/events` 实时推送计划与步骤状态。
 - **Checkpoint**：MysqlSaver 持久化 StateGraph 状态，支持中断恢复。
@@ -138,9 +139,9 @@ SuperAssistant/
 计划生命周期：
 
 ```
-用户请求 → SupervisorAgent → PlanTool 生成计划
+用户请求 → SupervisorAgent → PlanTool 拆解任务
        → PLAN_PENDING → 用户批准/拒绝
-       → APPROVED → 并行执行子 Agent → Reviewer 审查
+       → APPROVED → SuperiorAgent 分配并执行步骤 → ReviewAgent 验收
        → REVISE 时自动修订（最多 2 轮）→ COMPLETED / FAILED
 ```
 

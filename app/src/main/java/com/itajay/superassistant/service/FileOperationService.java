@@ -86,6 +86,11 @@ public class FileOperationService {
         }
     }
 
+    public boolean isInsidePlanDirectory(String filePath) {
+        Path planRoot = BASE_PATH.toAbsolutePath().resolve("plans").normalize();
+        return resolveSafe(filePath).startsWith(planRoot);
+    }
+
     private Path resolveSafe(String filePath) {
         Path target = BASE_PATH.resolve(filePath).normalize().toAbsolutePath();
         // Security: prevent path traversal outside workspace

@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS plan_step (
     plan_id BIGINT NOT NULL COMMENT 'plan_task.id',
     step_no INT NOT NULL COMMENT '步骤序号',
     step_key VARCHAR(50) COMMENT '计划内步骤唯一标识，如 s1',
-    agent_name VARCHAR(50) NOT NULL COMMENT '负责子Agent名称',
+    agent_name VARCHAR(50) NULL COMMENT '执行时由SupervisorAgent分配的Agent名称，创建计划时为空',
     goal TEXT NOT NULL COMMENT '子任务目标',
     acceptance_criteria TEXT COMMENT '验收标准',
     depends_on TEXT COMMENT '依赖步骤ID列表 JSON',

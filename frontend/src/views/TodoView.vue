@@ -5,27 +5,28 @@
       <div class="filters">
         <select v-model="filterStatus">
           <option value="">All Status</option>
-          <option>PENDING</option><option>IN_PROGRESS</option><option>COMPLETED</option><option>CANCELLED</option>
+          <option>PENDING</option><option>RUNNING</option><option>COMPLETED</option><option>FAILED</option><option>CANCELLED</option>
         </select>
         <select v-model="filterPriority">
           <option value="">All Priority</option>
           <option>URGENT</option><option>HIGH</option><option>MEDIUM</option><option>LOW</option>
         </select>
-        <input v-model="filterKeyword" placeholder="Search..." @keydown.enter="fetchTodos" />
-        <button class="btn-primary btn-sm" @click="fetchTodos">Search</button>
+        <input v-model="filterKeyword" placeholder="Search..." @keydown.enter="doSearch" />
+        <button class="btn-primary btn-sm" @click="doSearch">Search</button>
       </div>
     </div>
 
     <div class="tabs">
-      <button :class="{ active: tab === 'all' }" @click="tab='all'; fetchTodos()">All</button>
-      <button :class="{ active: tab === 'pending' }" @click="tab='pending'; fetchPending()">Pending</button>
-      <button :class="{ active: tab === 'overdue' }" @click="tab='overdue'; fetchOverdue()">Overdue</button>
-      <button :class="{ active: tab === 'search' }" @click="tab='search'">Search</button>
+      <button :class="{ active: tab === 'all' }" @click="switchTab('all')">All</button>
+      <button :class="{ active: tab === 'pending' }" @click="switchTab('pending')">Pending</button>
+      <button :class="{ active: tab === 'overdue' }" @click="switchTab('overdue')">Overdue</button>
+      <button :class="{ active: tab === 'search' }" @click="switchTab('search')">Search</button>
     </div>
 
     <div class="todo-list scrollbar" v-if="todos.length">
       <div v-for="t in todos" :key="t.id" class="todo-item card">
         <div class="todo-main">
+          <span v-if="t.stepKey" class="todo-key">{{ t.stepKey }}</span>
           <span class="todo-title">{{ t.title }}</span>
           <div class="todo-meta">
             <span :class="'badge badge-' + prioClass(t.priority)">{{ t.priority }}</span>
@@ -34,7 +35,11 @@
             <span v-if="t.assignedTo" class="todo-assignee">{{ t.assignedTo }}</span>
           </div>
         </div>
+        <p v-if="t.objective" class="todo-obj">目标: {{ t.objective }}</p>
         <p v-if="t.description" class="todo-desc">{{ t.description }}</p>
+        <p v-if="t.acceptanceCriteria" class="todo-accept">验收: {{ t.acceptanceCriteria }}</p>
+        <p v-if="t.outputSummary" class="todo-output">产出: {{ t.outputSummary }}</p>
+        <p v-if="t.errorMessage" class="todo-error">错误: {{ t.errorMessage }}</p>
       </div>
     </div>
     <div v-else class="empty-state">
@@ -52,16 +57,28 @@ const tab = ref('all')
 const todos = ref([])
 const filterStatus = ref(''), filterPriority = ref(''), filterKeyword = ref('')
 
-function fetchTodos() { getTodos().then(r => todos.value = r.data || []) }
-function fetchPending() { getPendingTodos().then(r => todos.value = r.data || []) }
-function fetchOverdue() { getOverdueTodos().then(r => todos.value = r.data || []) }
+function switchTab(t) {
+  tab.value = t
+  if (t === 'all') fetchTodos()
+  else if (t === 'pending') fetchPending()
+  else if (t === 'overdue') fetchOverdue()
+  else if (t === 'search') doSearch()
+}
+
+function fetchTodos() { getTodos().then(r => todos.value = r.data || []).catch(() => {}) }
+function fetchPending() { getPendingTodos().then(r => todos.value = r.data || []).catch(() => {}) }
+function fetchOverdue() { getOverdueTodos().then(r => todos.value = r.data || []).catch(() => {}) }
+function doSearch() {
+  queryTodos(filterStatus.value, filterPriority.value, filterKeyword.value)
+    .then(r => todos.value = r.data || []).catch(() => {})
+}
 
 function prioClass(p) {
   const m = { URGENT: 'high', HIGH: 'high', MEDIUM: 'medium', LOW: 'low' }
   return m[p] || 'low'
 }
 function statusStyle(s) {
-  const m = { PENDING: '#fbbf24', IN_PROGRESS: '#6c8cff', COMPLETED: '#34d399', CANCELLED: '#8b90a0' }
+  const m = { PENDING: '#fbbf24', RUNNING: '#6c8cff', COMPLETED: '#34d399', FAILED: '#ef4444', CANCELLED: '#8b90a0' }
   return { background: (m[s]||'#8b90a0')+'22', color: m[s]||'#8b90a0' }
 }
 
@@ -84,8 +101,13 @@ onMounted(fetchTodos)
 .todo-item { display: flex; flex-direction: column; gap: 4px; }
 .todo-main { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .todo-title { font-weight: 600; font-size: 14px; }
+.todo-key { font-family: monospace; font-size: 11px; background: var(--bg3); padding: 1px 6px; border-radius: 3px; color: var(--accent); }
 .todo-meta { display: flex; align-items: center; gap: 6px; }
 .todo-date, .todo-assignee { font-size: 11px; color: var(--text2); }
+.todo-obj { font-size: 12px; color: var(--accent); margin-top: 4px; }
 .todo-desc { font-size: 12px; color: var(--text2); margin-top: 4px; }
+.todo-accept { font-size: 12px; color: var(--text2); margin-top: 2px; font-style: italic; }
+.todo-output { font-size: 12px; color: #34d399; margin-top: 2px; }
+.todo-error { font-size: 12px; color: var(--red); margin-top: 2px; }
 .empty-state { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 60px 0; color: var(--text2); }
 </style>

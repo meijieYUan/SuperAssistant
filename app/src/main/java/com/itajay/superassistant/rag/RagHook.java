@@ -21,18 +21,17 @@ import java.util.stream.Collectors;
 @Component
 public class RagHook extends AgentHook {
 
-    public final QueryExpansion queryExpansion;
-    public final QueryTransformation queryTransformation;
-    public final DocumentRetrieval documentRetrieval;
-    public final DoucmentPostRetrieval doucmentPostRetrieval;
+    private final QueryExpansion queryExpansion;
+    private final QueryTransformation queryTransformation;
+    private final DocumentRetrieval documentRetrieval;
+    private final DocumentPostRetrieval documentPostRetrieval;
 
 
-    public RagHook(QueryExpansion queryExpansion, QueryTransformation queryTransformation, DocumentRetrieval documentRetrieval, DoucmentPostRetrieval doucmentPostRetrieval) {
+    public RagHook(QueryExpansion queryExpansion, QueryTransformation queryTransformation, DocumentRetrieval documentRetrieval, DocumentPostRetrieval documentPostRetrieval) {
         this.queryExpansion = queryExpansion;
         this.queryTransformation = queryTransformation;
         this.documentRetrieval = documentRetrieval;
-        this.doucmentPostRetrieval = doucmentPostRetrieval;
-
+        this.documentPostRetrieval = documentPostRetrieval;
     }
 
     @Override
@@ -81,7 +80,7 @@ public class RagHook extends AgentHook {
             List<Document> documents = documentRetrieval.doRetrieve(expandedQuery);
             queriesDocuments.put(expandedQuery,List.of(documents));
         }
-        List<Document> documents = doucmentPostRetrieval.dojoin(queriesDocuments);
+        List<Document> documents = documentPostRetrieval.dojoin(queriesDocuments);
         String context = documents.stream().map(document -> document.getText()).collect
                 (Collectors.joining("\n"));
         String systemPrompt = String.format(RAG_Template, context);

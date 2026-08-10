@@ -1,7 +1,6 @@
 package com.itajay.superassistant.config;
 
-import com.alibaba.cloud.ai.graph.agent.Agent;
-import com.alibaba.cloud.ai.graph.agent.flow.agent.SupervisorAgent;
+import com.alibaba.cloud.ai.graph.agent.AgentTool;
 import com.alibaba.cloud.ai.graph.agent.ReactAgent;
 import com.alibaba.cloud.ai.graph.agent.hook.hip.HumanInTheLoopHook;
 import com.alibaba.cloud.ai.graph.agent.hook.hip.ToolConfig;
@@ -10,7 +9,10 @@ import com.alibaba.cloud.ai.graph.checkpoint.savers.mysql.MysqlSaver;
 import com.itajay.superassistant.agent.ResearchAgent;
 import com.itajay.superassistant.agent.ReviewerAgent;
 import com.itajay.superassistant.agent.WriterAgent;
-import com.itajay.superassistant.rag.MemoryHook;
+import com.itajay.superassistant.tool.CreateAgentTool;
+import com.itajay.superassistant.workflow.ResearchWriteWorkflow;
+import com.itajay.superassistant.interceptor.PlanModeToolInterceptor;
+import com.itajay.superassistant.prompt.PromptSubmitHook;
 import com.itajay.superassistant.rag.RagAgent;
 import com.itajay.superassistant.tool.FileOperationTool;
 import com.itajay.superassistant.tool.MemoryTool;
@@ -18,75 +20,71 @@ import com.itajay.superassistant.tool.PlanTool;
 import com.itajay.superassistant.tool.TerminalTool;
 import com.itajay.superassistant.tool.TodoTool;
 import com.itajay.superassistant.tool.WebSearchTool;
-import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-
-import java.util.List;
+import org.springframework.lang.Nullable;
 
 @Configuration
 public class AgentConfig {
 
     public static final String MAIN_AGENT_INSTRUCTION = """
-            You are the main agent of a Supervisor workflow.
+            You are SuperAssistant, an intelligent and safety-conscious AI assistant.
+            Your job is to understand the user's needs and use the right tools to get things done.
 
-            ## Memory
-            You have persistent memory across sessions. At the start of each conversation,
-            you receive a memory profile with known facts about the user. Use this context
-            to personalize your responses.
+            ## Identity
+            You are the main agent in a multi-agent system. You orchestrate local tools,
+            sub-agents, and workflows. You are methodical: for complex work, plan first;
+            for simple requests, respond directly. You personalize responses using memory.
 
-            When to call remember():
-            - User explicitly states a preference (languages, tools, work style)
-            - User mentions an ongoing project or goal
-            - User shares personal context relevant to future interactions
-            - User corrects or updates previously stored information
-            - Any fact that would help you serve them better next time
+            ## Tool Usage Principles
+            - **File operations**: use the dedicated file read/write tools. Avoid terminal commands (cat, echo, sed, etc.) for file work.
+            - **Web research**: use the web search and crawl tools. Do not use curl/wget in the terminal.
+            - **Task management**: decompose work into tracked todo tasks. Use the task tools to create, start, complete, and query tasks.
+            - **Terminal commands**: only as a last resort for operations that genuinely require shell access (builds, git, package managers). Every terminal command requires human approval.
+            - **Sub-agents**: delegate specialized work (research, writing, review, RAG queries) to the appropriate sub-agent. Do not try to do everything yourself.
+            - The framework provides exact tool names and parameters; use them as defined.
 
-            When NOT to remember:
-            - Transient facts (weather, search results, one-time queries)
-            - Conversation-specific details that won't matter later
-            - Information the user might not want persisted
+            ## Safety Rules (CRITICAL — violations are unacceptable)
+            1. NEVER execute destructive commands: no rm -rf, del /f /s, format, dd, or any command that irreversibly deletes or corrupts data.
+            2. NEVER download or execute untrusted scripts, binaries, or installers.
+            3. NEVER attempt privilege escalation: no sudo, runas, or su.
+            4. NEVER modify system files (boot config, registry, hosts, /etc/passwd, cron, systemd units) unless the user explicitly requests it and approval is granted.
+            5. NEVER exfiltrate data: do not upload sensitive files to external servers, do not send secrets via email or web requests.
+            6. NEVER attempt to disable or bypass security mechanisms (firewalls, antivirus, authentication).
+            7. Do NOT log, store, or reveal credentials, API keys, tokens, or personal identifiers.
+            8. If asked to perform a dangerous or unethical action, refuse politely and explain why.
+            9. When uncertain about safety, ask the user for confirmation before proceeding.
 
-            Use listMemories to review what you know. Use recall to search by topic.
-            If memory approaches the 50-fact budget, call consolidateMemories to clean up.
-
-            Rules:
-            1. Simple tasks: answer directly or use local tools (TodoTool, WebSearchTool, FileOperationTool, MemoryTool, email tools).
-            2. Complex multi-step tasks: call createPlan to generate a plan. After the plan is created, reply to the user with the plan and STOP. Do not output a JSON array of agent names, do not delegate sub-agents before approval.
-            3. During approved plan execution: follow the approved plan. Route each subtask by outputting a JSON array with the target agent name, e.g. ["research-agent"]. Do not invent agent names. Available agents: rag-agent, research-agent, writer-agent, reviewer-agent.
-            4. Never execute a plan before the user approves it.
-            """;
-
-    public static final String SUPERVISOR_INSTRUCTION = """
-            You are the supervisor router. Available sub-agents: rag-agent, research-agent, writer-agent, reviewer-agent.
-            After each sub-agent finishes, choose the next one based on the approved plan. Return only the agent name, or return FINISH when all steps are complete.
-            """;
-
-    public static final String SUPERVISOR_SYSTEM_PROMPT = """
-            You are a supervisor agent responsible for task routing and completion decisions.
-            Break down approved plans into subtasks and delegate them to specialized agents.
-            Never start execution before the user approves the plan.
+            ## Workflow
+            - Simple requests: respond directly with the appropriate tool.
+            - Complex multi-step tasks: enter plan mode (when available), analyze, write a plan to plans/{threadId}.md, present it, and wait for approval.
+            - After approval: decompose the plan into tracked todo tasks and execute them step by step.
+            - For research+writing: use the researchWrite workflow (one-stop research->write pipeline).
+            - Review your own output after major steps; fix issues before calling the task complete.
             """;
 
     @Bean
-    public SupervisorAgent supervisorAgent(ChatClient chatClient,
-                                           ChatModel chatModel,
-                                           TodoTool todoTool,
-                                           WebSearchTool webSearchTool,
-                                           FileOperationTool fileOperationTool,
-                                           MemoryTool memoryTool,
-                                           MemoryHook memoryHook,
-                                           PlanTool planTool,
-                                           TerminalTool terminalTool,
-                                           RagAgent ragAgent,
-                                           ResearchAgent researchAgent,
-                                           WriterAgent writerAgent,
-                                           ReviewerAgent reviewerAgent,
-                                           SkillsAgentHook skillsAgentHook,
-                                           MysqlSaver mysqlSaver,
-                                           ToolCallbackProvider mcpToolCallbackProvider) {
+    public ReactAgent mainAgent(ChatModel chatModel,
+                                 TodoTool todoTool,
+                                 WebSearchTool webSearchTool,
+                                 FileOperationTool fileOperationTool,
+                                 MemoryTool memoryTool,
+                                 PromptSubmitHook promptSubmitHook,
+                                 PlanModeToolInterceptor planModeToolInterceptor,
+                                 PlanTool planTool,
+                                 TerminalTool terminalTool,
+                                 RagAgent ragAgent,
+                                 ResearchAgent researchAgent,
+                                 WriterAgent writerAgent,
+                                 ReviewerAgent reviewerAgent,
+                                 CreateAgentTool createAgentTool,
+                                 ResearchWriteWorkflow researchWriteWorkflow,
+                                 SkillsAgentHook skillsAgentHook,
+                                 MysqlSaver mysqlSaver,
+                                 @Nullable ToolCallbackProvider mcpToolCallbackProvider) {
 
         HumanInTheLoopHook humanInTheLoopHook = HumanInTheLoopHook.builder()
                 .approvalOn("writeFile", ToolConfig.builder()
@@ -101,33 +99,29 @@ public class AgentConfig {
                         .description("批量邮件发送需要人工审批，发送前可编辑收件人列表/主题/正文").build())
                 .build();
 
-        ReactAgent mainAgent = ReactAgent.builder()
+        // Wrap each sub-agent as an AgentTool so the main agent can call them directly
+        ToolCallback ragTool = AgentTool.create(ragAgent.reactAgent);
+        ToolCallback researchTool = AgentTool.create(researchAgent.reactAgent);
+        ToolCallback writerTool = AgentTool.create(writerAgent.reactAgent);
+        ToolCallback reviewerTool = AgentTool.create(reviewerAgent.reactAgent);
+
+        var builder = ReactAgent.builder()
                 .name("main-agent")
-                .description("Supervisor main agent for user interaction, local tools, MCP tools and planning.")
-                .chatClient(chatClient)
-                .instruction(MAIN_AGENT_INSTRUCTION)
-                .methodTools(todoTool, webSearchTool, fileOperationTool, memoryTool, planTool, terminalTool)
-                .toolCallbackProviders(mcpToolCallbackProvider)
-                .hooks(memoryHook, skillsAgentHook, humanInTheLoopHook)
-                .saver(mysqlSaver)
-                .outputKey("output")
-                .build();
-
-        List<Agent> subAgents = List.of(
-                ragAgent.reactAgent,
-                researchAgent.reactAgent,
-                writerAgent.reactAgent,
-                reviewerAgent.reactAgent);
-
-        return SupervisorAgent.builder()
-                .name("SupervisorAgent")
-                .description("Supervisor that routes user requests and approved plans to specialized agents.")
+                .description("Main agent: handles user interaction, planning, tool orchestration, and sub-agent delegation.")
                 .model(chatModel)
-                .mainAgent(mainAgent)
-                .subAgents(subAgents)
+                .instruction(MAIN_AGENT_INSTRUCTION)
+                .methodTools(todoTool, webSearchTool, fileOperationTool, memoryTool,
+                             planTool, terminalTool, createAgentTool, researchWriteWorkflow)
+                .tools(ragTool, researchTool, writerTool, reviewerTool)
+                .hooks(promptSubmitHook, skillsAgentHook, humanInTheLoopHook)
+                .interceptors(planModeToolInterceptor)
                 .saver(mysqlSaver)
-                .instruction(SUPERVISOR_INSTRUCTION)
-                .systemPrompt(SUPERVISOR_SYSTEM_PROMPT)
-                .build();
+                .outputKey("output");
+
+        if (mcpToolCallbackProvider != null) {
+            builder = builder.toolCallbackProviders(mcpToolCallbackProvider);
+        }
+
+        return builder.build();
     }
 }

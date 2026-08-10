@@ -1,10 +1,6 @@
 package com.itajay.superassistant.agent;
 
 import com.alibaba.cloud.ai.graph.agent.ReactAgent;
-import com.itajay.superassistant.plan.PlanStepHook;
-import com.itajay.superassistant.service.AgentRunLogService;
-import com.itajay.superassistant.service.PlanService;
-import com.itajay.superassistant.service.PlanStepService;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.stereotype.Component;
 
@@ -13,10 +9,7 @@ public class ReviewerAgent {
 
     public final ReactAgent reactAgent;
 
-    public ReviewerAgent(ChatModel chatModel,
-                         PlanStepService planStepService,
-                         PlanService planService,
-                         AgentRunLogService agentRunLogService) {
+    public ReviewerAgent(ChatModel chatModel) {
         this.reactAgent = ReactAgent.builder()
                 .name("reviewer-agent")
                 .description("任务完成审查 agent：按验收标准检查产出，输出 PASS 或 REVISE 以及修改意见。")
@@ -31,8 +24,6 @@ public class ReviewerAgent {
                         输出 JSON：
                         {"verdict": "PASS" 或 "REVISE", "comments": "审查意见"}
                         """)
-                .hooks(new PlanStepHook(
-                        "reviewer-agent", planStepService, planService, agentRunLogService))
                 .build();
     }
 }

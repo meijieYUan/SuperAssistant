@@ -30,18 +30,28 @@
     <div class="chat-main">
       <div class="chat-header">
         <span class="thread-label">{{ activeThread ? activeThread.title || 'New conversation' : 'Select a conversation' }}</span>
+        <label class="plan-toggle" title="Enable Plan Mode: when ON, the assistant may enter plan mode for complex tasks">
+          <input type="checkbox" v-model="planMode" @change="togglePlanMode" />
+          <span class="toggle-label">Plan Mode</span>
+          <span v-if="planMode && planActive" class="plan-active-badge">Planning</span>
+        </label>
       </div>
 
       <div class="chat-messages scrollbar" ref="msgContainer">
         <div v-if="messages.length === 0" class="empty-state">
-          <MessageSquare :size="40" />
+          <div class="empty-icon"><MessageSquare :size="28" /></div>
           <p>Start a conversation with your AI assistant</p>
+          <p class="empty-hint">Supports tasks, code, research &amp; more</p>
         </div>
 
         <div v-for="(msg, i) in messages" :key="i" :class="['message', msg.role]">
-          <div class="msg-avatar">{{ msg.role === 'user' ? 'U' : 'S' }}</div>
+          <div class="msg-avatar">
+            <User v-if="msg.role === 'user'" :size="16" />
+            <Bot v-else :size="16" />
+          </div>
           <div class="msg-body">
-            <div class="msg-text" v-html="renderMarkdown(msg.content)"></div>
+            <div v-if="msg.role === 'user'" class="msg-text">{{ msg.content }}</div>
+            <div v-else class="msg-text" v-html="renderMarkdown(msg.content)" @click="handleCopyClick"></div>
             <div v-if="msg.approvals" class="approval-panel card">
               <div class="approval-header">
                 <AlertTriangle :size="16" />
@@ -83,18 +93,32 @@
         </div>
 
         <div v-if="loading" class="message assistant">
-          <div class="msg-avatar">S</div>
-          <div class="msg-body"><span class="loading"></span> Thinking...</div>
+          <div class="msg-avatar"><Bot :size="16" /></div>
+          <div class="msg-body">
+            <div class="typing-dots"><span></span><span></span><span></span></div>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="taskList.length > 0" class="task-progress card">
+        <div class="task-header">
+          <span>Tasks ({{ taskList.filter(t => t.status === 'COMPLETED').length }}/{{ taskList.length }})</span>
+        </div>
+        <div v-for="t in taskList.slice(0, 5)" :key="t.id" class="task-item">
+          <span :class="'task-status ' + (t.status || '').toLowerCase()">{{ t.status }}</span>
+          <span class="task-title">{{ t.title }}</span>
         </div>
       </div>
 
       <div class="chat-input">
-        <input
+        <textarea
+          ref="inputRef"
           v-model="input"
-          @keydown.enter="send"
-          placeholder="Type a message... (Enter to send)"
+          @keydown="onKeydown"
+          placeholder="Type a message... (Enter to send, Shift+Enter for new line)"
           :disabled="loading || !activeThreadId"
-        />
+          rows="1"
+        ></textarea>
         <button class="btn-primary" @click="send" :disabled="!input.trim() || loading || !activeThreadId">
           <Send :size="16" />
         </button>
@@ -105,16 +129,22 @@
 
 <script setup>
 import { ref, computed, nextTick, watch, onMounted } from 'vue'
-import { MessageSquare, Send, AlertTriangle, GitBranch, Plus, Trash2 } from 'lucide-vue-next'
-import { sendChat, approveChat, approvePlan, rejectPlan } from '../api'
+import { MessageSquare, Send, AlertTriangle, GitBranch, Plus, Trash2, User, Bot } from 'lucide-vue-next'
+import { sendChat, approveChat, getPendingTodos } from '../api'
+import { renderMarkdown, handleCopyClick } from '../utils/markdown'
+import { toast } from '../utils/toast'
 
 const STORAGE_KEY = 'sa_threads'
 
 // Persistent threads store
 const threads = ref({})
 const activeThreadId = ref(null)
+const planMode = ref(false)
+const planActive = ref(false)
+const taskList = ref([])
 
 const input = ref('')
+const inputRef = ref(null)
 const loading = ref(false)
 const msgContainer = ref(null)
 
@@ -171,6 +201,7 @@ function ensureThread() {
   }
 }
 
+function togglePlanMode() { planMode.value = !planMode.value }
 function newThread() {
   const id = 'thr-' + Date.now().toString(36)
   threads.value[id] = { id, title: '', lastActive: Date.now(), messages: [] }
@@ -195,6 +226,22 @@ function deleteThread(id) {
   saveThreads()
 }
 
+function onKeydown(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault()
+    send()
+  }
+}
+
+function adjustTextarea() {
+  const el = inputRef.value
+  if (!el) return
+  el.style.height = 'auto'
+  el.style.height = Math.min(el.scrollHeight, 200) + 'px'
+}
+
+watch(input, adjustTextarea)
+
 function send() {
   if (!input.value.trim() || loading.value || !activeThreadId.value) return
   const msg = input.value.trim()
@@ -205,18 +252,23 @@ function send() {
   t.messages.push({ role: 'user', content: msg })
   t.lastActive = Date.now()
   input.value = ''
+  nextTick(adjustTextarea)
   loading.value = true
   saveThreads()
   scrollDown()
-  sendChat(activeThreadId.value, msg)
+  sendChat(activeThreadId.value, msg, planMode.value ? 'PlanMode' : 'Default')
     .then(r => handleResponse(r.data))
+    .catch(() => {})
     .finally(() => { loading.value = false; scrollDown() })
 }
 
 function handleResponse(data) {
   const t = threads.value[activeThreadId.value]
   if (!t) return
-  if (data.type === 'ANSWER') {
+  if (data.planEnabled !== undefined) { planMode.value = data.planEnabled }
+    if (data.planActive !== undefined) { planActive.value = data.planActive }
+    refreshTasks()
+    if (data.type === 'ANSWER') {
     const text = extractText(data.response || data)
     t.messages.push({ role: 'assistant', content: text })
   } else if (data.type === 'INTERRUPTED') {
@@ -267,28 +319,31 @@ function submitApprovals(msg) {
   loading.value = true
   approveChat(activeThreadId.value, decisions)
     .then(r => handleResponse(r.data))
+    .catch(() => {})
     .finally(() => { loading.value = false; scrollDown() })
 }
 
 function approvePlanAction(planId) {
   loading.value = true
-  approvePlan(planId).then(r => handleResponse(r.data)).finally(() => { loading.value = false })
+  sendChat(activeThreadId.value, 'I approve the plan. Please proceed with execution.', planMode.value ? 'PlanMode' : 'Default')
+    .then(r => handleResponse(r.data))
+    .catch(() => {})
+    .finally(() => { loading.value = false })
 }
 function rejectPlanAction(planId) {
   loading.value = true
-  rejectPlan(planId, 'User rejected').then(r => handleResponse(r.data)).finally(() => { loading.value = false })
+  sendChat(activeThreadId.value, 'I reject the plan. Please revise based on my feedback.', planMode.value ? 'PlanMode' : 'Default')
+    .then(r => handleResponse(r.data))
+    .catch(() => {})
+    .finally(() => { loading.value = false })
 }
 
 function formatArgs(args) {
   try { return JSON.stringify(JSON.parse(args), null, 2) } catch { return args }
 }
-function renderMarkdown(text) {
-  if (!text) return ''
-  return text
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\n/g, '<br>')
+function refreshTasks() {
+  if (!activeThreadId.value) return
+  getPendingTodos().then(r => { taskList.value = r.data || [] }).catch(() => {})
 }
 function formatTime(ts) {
   if (!ts) return ''
@@ -310,6 +365,7 @@ onMounted(() => {
   loadThreads()
   if (threadList.value.length > 0) {
     activeThreadId.value = threadList.value[0].id
+    refreshTasks()
   }
 })
 </script>
@@ -345,23 +401,34 @@ onMounted(() => {
 .thread-label { font-size: 14px; font-weight: 600; color: var(--text); }
 
 .chat-messages { flex: 1; overflow-y: auto; padding: 20px; }
-.empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 12px; color: var(--text2); }
-.empty-state p { font-size: 15px; }
+.empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 8px; color: var(--text2); }
+.empty-icon { width: 56px; height: 56px; border-radius: 14px; background: var(--bg2); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; margin-bottom: 4px; color: var(--accent); }
+.empty-state p { font-size: 14px; }
+.empty-state .empty-hint { font-size: 12px; color: var(--text2); opacity: .6; }
 
-.message { display: flex; gap: 12px; margin-bottom: 20px; }
+/* Typing indicator */
+.typing-dots { display: flex; gap: 4px; padding: 10px 14px; }
+.typing-dots span {
+  width: 7px; height: 7px; border-radius: 50%; background: var(--text2);
+  animation: dotBounce 1.4s ease-in-out infinite;
+}
+.typing-dots span:nth-child(2) { animation-delay: .16s; }
+.typing-dots span:nth-child(3) { animation-delay: .32s; }
+@keyframes dotBounce { 0%, 60%, 100% { opacity: .3; transform: scale(.8); } 30% { opacity: 1; transform: scale(1); } }
+
+.message { display: flex; gap: 12px; margin-bottom: 20px; animation: msgIn .3s ease; }
+@keyframes msgIn { from { opacity: 0; transform: translateY(8px); } }
 .message.user { flex-direction: row-reverse; }
 .msg-avatar {
   width: 34px; height: 34px; border-radius: 8px; display: flex;
-  align-items: center; justify-content: center; font-size: 13px; font-weight: 700; flex-shrink: 0;
+  align-items: center; justify-content: center; flex-shrink: 0;
 }
 .message.assistant .msg-avatar { background: var(--accent); color: #fff; }
-.message.user .msg-avatar { background: var(--bg3); color: var(--text); }
+.message.user .msg-avatar { background: linear-gradient(135deg, #4a5568, #2d3748); color: var(--text2); }
 .msg-body { max-width: 80%; min-width: 0; }
 .msg-text { padding: 10px 14px; border-radius: var(--radius); font-size: 13px; line-height: 1.65; }
 .message.assistant .msg-text { background: var(--bg2); border: 1px solid var(--border); }
-.message.user .msg-text { background: var(--accent); color: #fff; }
-.msg-text :deep(code) { background: rgba(0,0,0,.2); padding: 1px 5px; border-radius: 3px; font-size: 12px; }
-.msg-text :deep(strong) { color: var(--accent); }
+.message.user .msg-text { background: var(--accent); color: #fff; white-space: pre-wrap; word-break: break-word; }
 .approval-panel { margin-top: 10px; }
 .approval-header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; color: var(--yellow); font-weight: 600; font-size: 13px; }
 .approval-item { margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
@@ -374,6 +441,34 @@ onMounted(() => {
 .plan-summary { font-size: 12px; color: var(--text2); white-space: pre-wrap; max-height: 200px; overflow-y: auto; margin-bottom: 10px; }
 .plan-actions { display: flex; gap: 8px; }
 .chat-input { display: flex; gap: 8px; padding: 12px 20px; border-top: 1px solid var(--border); }
-.chat-input input { flex: 1; }
-.chat-input button { padding: 8px 14px; display: flex; align-items: center; }
+.chat-input textarea {
+  flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius);
+  color: var(--text); padding: 9px 12px; font-size: 13px; outline: none; resize: none;
+  line-height: 1.5; font-family: inherit; min-height: 40px; max-height: 200px;
+  transition: border-color .15s;
+}
+.chat-input textarea:focus { border-color: var(--accent); }
+.chat-input button { padding: 8px 14px; display: flex; align-items: center; align-self: flex-end; }
+
+@media (max-width: 720px) {
+  .chat-layout { position: relative; }
+  .thread-sidebar { display: none; }
+}
+
+.plan-toggle { display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; color: var(--text2); user-select: none; }
+.plan-toggle input { accent-color: var(--accent); cursor: pointer; }
+.toggle-label { font-weight: 500; }
+
+/* Task progress bar */
+.task-progress { margin: 0 20px 8px; padding: 10px 14px; }
+.task-header { font-size: 12px; font-weight: 600; color: var(--text2); margin-bottom: 6px; }
+.task-item { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 12px; }
+.task-status { padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 600; text-transform: uppercase; }
+.task-status.completed { background: rgba(72,199,142,.15); color: var(--green); }
+.task-status.running { background: rgba(108,140,255,.15); color: var(--accent); }
+.task-status.pending { background: var(--bg); color: var(--text2); }
+.task-status.failed { background: rgba(248,113,113,.15); color: var(--red); }
+.task-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plan-active-badge { padding: 1px 8px; border-radius: 10px; font-size: 10px; font-weight: 600; background: rgba(108,140,255,.15); color: var(--accent); }
+
 </style>

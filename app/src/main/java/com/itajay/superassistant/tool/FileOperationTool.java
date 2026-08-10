@@ -1,8 +1,10 @@
 package com.itajay.superassistant.tool;
 
+import com.itajay.superassistant.plan.PlanModeContext;
 import com.itajay.superassistant.service.FileOperationService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
@@ -29,10 +31,14 @@ public class FileOperationTool {
         }
     }
 
-    @Tool(description = "Write content to a file. Creates the file if it doesn't exist, overwrites if it does. Parent directories are created automatically.")
+    @Tool(description = "Write content to a file. Creates the file if it doesn't exist, overwrites if it does. Parent directories are created automatically. In plan mode only files under plans/ can be written.")
     public String writeFile(
             @ToolParam(description = "Path to the file (relative to workspace)") String filePath,
-            @ToolParam(description = "Content to write to the file") String content) {
+            @ToolParam(description = "Content to write to the file") String content,
+            ToolContext toolContext) {
+        if (planModeBlocksPath(toolContext, filePath)) {
+            return "计划模式下只允许写入 plans/ 目录下的计划文件";
+        }
         log.info("Writing file: {}", filePath);
         try {
             return fileService.writeFile(filePath, content);
@@ -42,9 +48,13 @@ public class FileOperationTool {
         }
     }
 
-    @Tool(description = "Create a new empty file. Fails if the file already exists.")
+    @Tool(description = "Create a new empty file. Fails if the file already exists. In plan mode only files under plans/ can be created.")
     public String createFile(
-            @ToolParam(description = "Path to the new file (relative to workspace)") String filePath) {
+            @ToolParam(description = "Path to the new file (relative to workspace)") String filePath,
+            ToolContext toolContext) {
+        if (planModeBlocksPath(toolContext, filePath)) {
+            return "计划模式下只允许在 plans/ 目录下创建计划文件";
+        }
         log.info("Creating file: {}", filePath);
         try {
             return fileService.createFile(filePath);
@@ -54,9 +64,13 @@ public class FileOperationTool {
         }
     }
 
-    @Tool(description = "Delete a file or empty directory.")
+    @Tool(description = "Delete a file or empty directory. In plan mode only files under plans/ can be deleted.")
     public String deleteFile(
-            @ToolParam(description = "Path to the file or empty directory to delete (relative to workspace)") String filePath) {
+            @ToolParam(description = "Path to the file or empty directory to delete (relative to workspace)") String filePath,
+            ToolContext toolContext) {
+        if (planModeBlocksPath(toolContext, filePath)) {
+            return "计划模式下只允许删除 plans/ 目录下的计划文件";
+        }
         log.info("Deleting file: {}", filePath);
         try {
             return fileService.deleteFile(filePath);
@@ -76,5 +90,19 @@ public class FileOperationTool {
             log.error("List files failed", e);
             return "Failed to list files: " + e.getMessage();
         }
+    }
+
+    private boolean planModeBlocksPath(ToolContext toolContext, String filePath) {
+        return PlanModeContext.isActive(threadId(toolContext)) && !fileService.isInsidePlanDirectory(filePath);
+    }
+
+    private String threadId(ToolContext toolContext) {
+        if (toolContext != null && toolContext.getContext() != null) {
+            Object value = toolContext.getContext().get("threadId");
+            if (value != null) {
+                return String.valueOf(value);
+            }
+        }
+        return null;
     }
 }

@@ -1,10 +1,6 @@
 package com.itajay.superassistant.rag;
 
 import com.alibaba.cloud.ai.graph.agent.ReactAgent;
-import com.itajay.superassistant.plan.PlanStepHook;
-import com.itajay.superassistant.service.AgentRunLogService;
-import com.itajay.superassistant.service.PlanService;
-import com.itajay.superassistant.service.PlanStepService;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.stereotype.Component;
 
@@ -20,18 +16,14 @@ public class RagAgent {
 
     public RagAgent(RagHook raghook,
                     ChatModel chatModel,
-                    CustomMessageAgentHook customMessageAgentHook,
-                    PlanStepService planStepService,
-                    PlanService planService,
-                    AgentRunLogService agentRunLogService) {
+                    CustomMessageAgentHook customMessageAgentHook) {
         this.reactAgent = ReactAgent.builder()
                 .name("rag-agent")
                 .model(chatModel)
                 .instruction("{input}") //用户的输入 在 OverAllState 的 {input} 键中
                 .includeContents(false) //让rag agent专注于用户问题进行回答
                 .description(AGENT_DESCRIPTION)
-                .hooks(raghook, customMessageAgentHook, new PlanStepHook(
-                        "rag-agent", planStepService, planService, agentRunLogService))
+                .hooks(raghook, customMessageAgentHook)
                 .build();
     }
 

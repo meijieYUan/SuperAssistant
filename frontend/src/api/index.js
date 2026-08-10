@@ -1,10 +1,23 @@
 import axios from 'axios'
+import { toast } from '../utils/toast'
 
 const api = axios.create({ baseURL: '/api', timeout: 120000 })
 
-// Chat
-export const sendChat = (threadId, message) =>
-  api.post(`/chat/${threadId}`, { message })
+api.interceptors.response.use(
+  response => response,
+  error => {
+    const msg = error.response?.data?.message || error.message || 'Request failed'
+    toast(msg, 'error')
+    return Promise.reject(error)
+  }
+)
+
+// Health
+export const getHealth = () => api.get('/health')
+
+// Chat — mode is 'Default' or 'PlanMode'
+export const sendChat = (threadId, message, mode = 'Default') =>
+  api.post(`/chat/${threadId}`, { message, mode })
 
 export const approveChat = (threadId, decisions) =>
   api.post(`/chat/${threadId}/approve`, { decisions })
@@ -23,12 +36,7 @@ export const uploadKnowledge = (file) => {
   return api.post('/knowledge/upload', fd)
 }
 
-// Plans
+// Plans (read-only queries; approve/reject go through chat)
 export const getPlan = (planId) => api.get(`/plans/${planId}`)
-export const approvePlan = (planId) => api.post(`/plans/${planId}/approve`)
-export const rejectPlan = (planId, reason) =>
-  api.post(`/plans/${planId}/reject`, { reason })
-export const revisePlan = (planId) => api.post(`/plans/${planId}/revise`)
-export const getPlanEvents = (planId) =>
-  api.get(`/plans/${planId}/events`)
+export const getPlanEvents = (planId) => api.get(`/plans/${planId}/events`)
 export const getPlanRuns = (planId) => api.get(`/plans/${planId}/runs`)

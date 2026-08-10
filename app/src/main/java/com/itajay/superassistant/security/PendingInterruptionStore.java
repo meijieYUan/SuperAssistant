@@ -14,10 +14,8 @@ public class PendingInterruptionStore {
     public void put(String threadId,
                     RunnableConfig config,
                     InterruptionMetadata metadata,
-                    String inputMessage,
-                    Long planId,
-                    Long planStepId) {
-        store.put(threadId, new PendingInterruption(config, metadata, inputMessage, planId, planStepId));
+                    String inputMessage) {
+        store.put(threadId, new PendingInterruption(config, metadata, inputMessage));
     }
 
     public PendingInterruption get(String threadId) {
@@ -31,8 +29,6 @@ public class PendingInterruptionStore {
     public record PendingInterruption(
             RunnableConfig config,
             InterruptionMetadata metadata,
-            String inputMessage,
-            Long planId,
-            Long planStepId
+            String inputMessage
     ) {}
 }

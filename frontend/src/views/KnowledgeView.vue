@@ -10,6 +10,9 @@
     <div v-if="uploading" class="upload-progress">
       <span class="loading"></span> Uploading {{ uploadFile }}...
     </div>
+    <div v-if="uploadError" class="upload-error">
+      <AlertCircle :size="16" /> {{ uploadError }}
+    </div>
     <div v-if="result" class="upload-result card">
       <CheckCircle :size="18" class="result-icon" />
       <div><strong>Uploaded:</strong> {{ result.filename }}</div>
@@ -20,12 +23,13 @@
 
 <script setup>
 import { ref } from 'vue'
-import { Upload, CheckCircle } from 'lucide-vue-next'
+import { Upload, CheckCircle, AlertCircle } from 'lucide-vue-next'
 import { uploadKnowledge } from '../api'
 
 const fileInput = ref(null)
 const uploading = ref(false)
 const uploadFile = ref('')
+const uploadError = ref('')
 const result = ref(null)
 
 function triggerFile() { fileInput.value.click() }
@@ -35,8 +39,12 @@ function onDrop(e) { if (e.dataTransfer.files.length) doUpload(e.dataTransfer.fi
 function doUpload(file) {
   uploadFile.value = file.name
   uploading.value = true
+  uploadError.value = ''
   result.value = null
-  uploadKnowledge(file).then(r => { result.value = r.data }).finally(() => { uploading.value = false })
+  uploadKnowledge(file)
+    .then(r => { result.value = r.data })
+    .catch(err => { uploadError.value = err.response?.data?.message || 'Upload failed' })
+    .finally(() => { uploading.value = false })
 }
 </script>
 
@@ -52,6 +60,7 @@ function doUpload(file) {
 .upload-zone p { font-size: 14px; }
 .upload-hint { font-size: 12px; color: var(--text2); }
 .upload-progress { display: flex; align-items: center; gap: 8px; margin-top: 16px; font-size: 13px; }
+.upload-error { display: flex; align-items: center; gap: 8px; margin-top: 16px; font-size: 13px; color: var(--red); }
 .upload-result { margin-top: 16px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
 .result-icon { color: var(--green); margin-bottom: 4px; }
 </style>
