@@ -9,6 +9,7 @@ import com.alibaba.cloud.ai.graph.checkpoint.savers.mysql.MysqlSaver;
 import com.itajay.superassistant.agent.ResearchAgent;
 import com.itajay.superassistant.agent.ReviewerAgent;
 import com.itajay.superassistant.agent.WriterAgent;
+import com.itajay.superassistant.compact.CompactHook;
 import com.itajay.superassistant.tool.CreateAgentTool;
 import com.itajay.superassistant.workflow.ResearchWriteWorkflow;
 import com.itajay.superassistant.interceptor.PlanModeToolInterceptor;
@@ -72,6 +73,7 @@ public class AgentConfig {
                                  WebSearchTool webSearchTool,
                                  FileOperationTool fileOperationTool,
                                  MemoryTool memoryTool,
+                                 CompactHook compactHook,
                                  PromptSubmitHook promptSubmitHook,
                                  PlanModeToolInterceptor planModeToolInterceptor,
                                  PlanTool planTool,
@@ -113,7 +115,7 @@ public class AgentConfig {
                 .methodTools(todoTool, webSearchTool, fileOperationTool, memoryTool,
                              planTool, terminalTool, createAgentTool, researchWriteWorkflow)
                 .tools(ragTool, researchTool, writerTool, reviewerTool)
-                .hooks(promptSubmitHook, skillsAgentHook, humanInTheLoopHook)
+                .hooks(compactHook, promptSubmitHook, skillsAgentHook, humanInTheLoopHook)
                 .interceptors(planModeToolInterceptor)
                 .saver(mysqlSaver)
                 .outputKey("output");
