@@ -1,6 +1,6 @@
-# SuperAssistant —— AI 智能助理平台
+﻿# SuperAssistant —— AI 智能助理平台
 
-基于 Spring AI Alibaba 多智能体架构的企业级 AI 助理，支持对话、RAG 知识检索、待办管理、网页搜索、文件操作、邮件发送，并内置 Human-In-The-Loop 高危操作审批机制。
+基于 Spring AI Alibaba 多智能体架构的企业级 AI 助理，支持对话、RAG 知识检索、待办管理、网页搜索、文件操作、邮件发送，内置 Human-In-The-Loop 高危操作审批机制与四层上下文压缩系统。
 
 ## 架构概览
 
@@ -8,28 +8,35 @@
                         POST /api/chat/{threadId}
                               │
                               ▼
-              ┌──────────────────────────────┐
-              │        SuperiorAgent          │
-              │    (Master Reactive Agent)    │
-              │  ┌─────────────────────────┐ │
-              │  │  Hooks 拦截链            │ │
-              │  │  ├─ SkillsAgentHook     │ │  ← ClasspathSkillRegistry
-              │  │  ├─ HumanInTheLoopHook  │ │  ← 高危操作审批中断
-              │  │  └─ CustomMessageAgent  │ │  ← 对话记忆注入
-              │  │         Hook             │ │
-              │  └─────────────────────────┘ │
-              │       │ 工具调度              │
-              └───────┼──────────────────────┘
+              ┌──────────────────────────────────────┐
+              │          main-agent (ReactAgent)      │
+              │  ┌──────────────────────────────────┐ │
+              │  │  Hooks 拦截链 (按顺序执行)         │ │
+              │  │  ├─ CompactHook                  │ │  ← 四层上下文压缩
+              │  │  ├─ PromptSubmitHook             │ │  ← 提示词预处理
+              │  │  ├─ SkillsAgentHook              │ │  ← ClasspathSkillRegistry
+              │  │  └─ HumanInTheLoopHook           │ │  ← 高危操作审批中断
+              │  └──────────────────────────────────┘ │
+              │  PlanModeToolInterceptor (拦截器)     │  ← 计划模式工具管控
+              │       │ 工具调度                       │
+              └───────┼──────────────────────────────┘
                       │
-     ┌────────────────┼────────────────────────┐
-     ▼                ▼                         ▼
-┌─────────┐   ┌─────────────┐    ┌──────────────────────┐
-│ RagAgent│   │ Local Tools  │    │  MCP Client (WebFlux) │
-│  (子Agent)│   │ ├─ TodoTool  │    │  ──SSE──► Email MCP  │
-│         │   │ ├─ WebSearch │    │           Server :8081│
-│  RAG 管线│   │ └─ FileOp   │    │  sendEmail            │
-└────┬────┘   └─────────────┘    │  sendEmailBatch        │
-     │                           └──────────────────────┘
+     ┌────────────────┼──────────────────────────────────┐
+     ▼                ▼                                   ▼
+┌─────────┐   ┌──────────────────┐    ┌──────────────────────────┐
+│子 Agent │   │   Local Tools     │    │   MCP Client (WebFlux)   │
+│├─RagAgent│   │ ├─ TodoTool      │    │   ──SSE──► Email MCP    │
+│├─Research│   │ ├─ WebSearchTool │    │            Server :8081  │
+││  Agent │   │ ├─ FileOpTool    │    │   sendEmail              │
+│├─Writer  │   │ ├─ MemoryTool    │    │   sendEmailBatch         │
+││  Agent │   │ ├─ PlanTool      │    └──────────────────────────┘
+│└─Reviewer│   │ ├─ TerminalTool  │
+│   Agent  │   │ ├─ DateTimeTool  │
+│          │   │ ├─ WeatherTool   │
+│Research- │   │ └─ CreateAgentTool│
+│Write     │   └──────────────────┘
+│Workflow  │
+└────┬────┘
      │ Milvus 向量检索
      ▼
 ┌──────────────────┐
@@ -41,134 +48,58 @@
 └──────────────────┘
 ```
 
-## 技术栈
-
-| 类别 | 技术 |
-|------|------|
-| **语言** | Java 21 |
-| **框架** | Spring Boot 4.1 · Spring AI 2.0 · Spring AI Alibaba 2.0-M1.1 |
-| **LLM** | DeepSeek (deepseek-chat) |
-| **Agent** | ReactAgent + StateGraph + MysqlSaver (checkpoint 持久化) |
-| **RAG** | CompressionQueryTransformer · MultiQueryExpander · MilvusVectorStore · ConcatenationDocumentJoiner |
-| **向量库** | Milvus 2.x (localhost:9090) |
-| **数据库** | MySQL 8.0 (生产) · H2 (开发/测试) |
-| **ORM** | MyBatis Plus 3.5.9 |
-| **文档解析** | PDF (ParagraphPdfDocumentReader) · Markdown · TXT/Code (TextReader) |
-| **工具集成** | MCP (Model Context Protocol) — Client SSE ↔ Server WebMVC |
-| **构建** | Maven 多模块 |
-
-## 项目结构
-
-```
-SuperAssistant/
-├── pom.xml                     # 父 POM，依赖管理
-├── app/                        # 主应用模块 :8080
-│   ├── pom.xml
-│   └── src/main/java/com/itajay/superassistant/
-│       ├── SuperAssistantApplication.java
-│       ├── app/                # Controller 层
-│       │   ├── SuperAssistant.java    # 核心 API：对话 + HITL 审批
-│       │   ├── RagController.java     # 知识库文件上传
-│       │   └── TodoController.java    # Todo REST API
-│       ├── config/             # Spring 配置
-│       │   ├── AgentConfig.java       # SuperiorAgent 组装
-│       │   ├── ModelConfig.java       # DeepSeek 模型配置
-│       │   ├── McpConfig.java         # MCP Client 自动配置
-│       │   ├── SaverConfig.java       # 双数据源 (MySQL + rag)
-│       │   └── VectorConfig.java      # Milvus 向量库
-│       ├── rag/                # RAG 检索增强管线
-│       │   ├── RagAgent.java          # 子 Agent：知识检索回答
-│       │   ├── RagHook.java           # RAG Hook：压缩→扩展→检索→注入
-│       │   ├── QueryTransformation.java  # 查询压缩 + 改写
-│       │   ├── QueryExpansion.java    # 多路查询扩展
-│       │   ├── DocumentRetrieval.java # Milvus 向量检索
-│       │   ├── DoucmentPostRetrieval.java # 结果合并去重
-│       │   ├── RagService.java        # 文档导入 + 切分 + 入库
-│       │   ├── CustomJdbcChatMemoryRepository.java  # 自定义对话记忆
-│       │   └── CustomMessageAgentHook.java  # 记忆注入 Hook
-│       ├── security/           # HITL 人工审批
-│       │   ├── HITLHelper.java         # 审批决策工具（逐一审批 / 全部 / 编辑参数）
-│       │   ├── ApprovalDecision.java   # 审批决策 DTO
-│       │   └── PendingApproval.java    # 待审批项 DTO（前端渲染）
-│       ├── tool/               # Agent 工具
-│       │   ├── TodoTool.java           # 待办 CRUD，多条件组合查询
-│       │   ├── WebSearchTool.java      # DuckDuckGo 搜索 + Jsoup 抓取
-│       │   └── FileOperationTool.java  # 文件读写/创建/删除/列表
-│       ├── service/            # 业务服务层
-│       │   ├── TodoService.java
-│       │   ├── WebSearchService.java   # HttpClient + Jsoup
-│       │   └── FileOperationService.java
-│       ├── entity/             # MyBatis Plus 实体
-│       │   └── TodoTask.java
-│       ├── mapper/             # MyBatis Mapper
-│       │   └── TodoTaskMapper.java     # 动态 SQL 组合查询
-│       └── skill/              # Agent Skills
-│           └── SkillConfig.java        # ClasspathSkillRegistry
-│       └── resources/
-│           ├── application.yml
-│           ├── sql/            # DDL
-│           │   ├── schema.sql          # todo_task 表
-│           │   └── custom_chat_memory.sql
-│           └── skills/         # Skill 定义
-│               └── research_writing_skill/
-│                   ├── skill.md
-│                   ├── template/template.md
-│                   └── example/*.png
-│
-└── server/                     # MCP Email Server :8081
-    ├── pom.xml
-    └── src/main/java/com/itajay/mcpemail/
-        ├── McpEmailServerApplication.java
-        └── tool/
-            └── EmailMcpTools.java     # sendEmail / sendEmailBatch
-```
-
 ## 核心功能
 
-### 1. 多智能体协作
+### 1. 多智能体协作与计划模式
 
-- **SupervisorAgent（主 Agent）**：基于 Spring AI Alibaba `SupervisorAgent` 类型实现统一入口和任务路由，可把请求路由到 `rag-agent`、`research-agent`、`writer-agent`、`reviewer-agent`。
-- **PlanTool**：只负责把复杂任务拆解成带验收标准的小步骤（计划不含任何执行者信息），返回 `PLAN_PENDING`；用户批准后才开始执行。
-- **SupervisorAgent 分配**：批准后所有步骤统一交给 SuperiorAgent，由它决定主 Agent 直接完成或委派专业子 Agent；子 Agent 在运行时认领未分配步骤。
-- **并行执行**：执行器按 `dependsOn` 计算可并行步骤，互不依赖的子任务并发执行。
-- **审查修订循环**：计划末尾自动追加整体验收任务，由 ReviewerAgent 判断是否完成；返回 `REVISE` 时自动追加“修订 + 复审”步骤，最多修订 2 轮。
-- **Agent 运行日志**：`agent_run_log` 记录每次 Agent 运行、计划步骤、输入输出与状态。
+- **主 Agent（main-agent）**：基于 Spring AI Alibaba ReactAgent 实现统一入口和任务路由，可将子任务委派给 `rag-agent`、`research-agent`、`writer-agent`、`reviewer-agent` 四个专业子 Agent。
+- **PlanTool 计划模式**：复杂任务先进入只读计划阶段，Agent 分析需求生成结构化方案写入 `plans/{threadId}.md`。用户审批通过后才退出计划模式，将计划拆解为可追踪的 Todo 任务执行。
+- **PlanModeToolInterceptor**：计划模式下自动拦截写操作工具，仅放行只读类工具（搜索、读文件），防止 Agent 在未审批时越权修改。
+- **审查修订循环**：计划末尾自动追加整体验收任务，由 ReviewerAgent 判定是否达标。未达标时自动追加"修订 + 复审"步骤，最多修订 2 轮避免无限循环。
+- **ResearchWriteWorkflow**：研究 → 写作的顺序流水线，ResearchAgent 搜集素材后 WriterAgent 撰写结构化 Markdown 文档，作为单一 Tool 暴露给主 Agent 调用。
 - **SSE 进度推送**：`GET /api/plans/{planId}/events` 实时推送计划与步骤状态。
-- **Checkpoint**：MysqlSaver 持久化 StateGraph 状态，支持中断恢复。
+- **Checkpoint**：MysqlSaver 持久化 StateGraph 状态，支持会话中断后从断点恢复。
 
 计划生命周期：
 
 ```
-用户请求 → SupervisorAgent → PlanTool 拆解任务
+用户请求 → main-agent → PlanTool 拆解任务
        → PLAN_PENDING → 用户批准/拒绝
-       → APPROVED → SuperiorAgent 分配并执行步骤 → ReviewAgent 验收
+       → APPROVED → 并行执行步骤 → ReviewerAgent 验收
        → REVISE 时自动修订（最多 2 轮）→ COMPLETED / FAILED
 ```
 
-### 2. RAG 检索增强生成
+### 2. 四层上下文压缩系统
 
-完整五步管线：
+针对 LLM 上下文窗口限制（DeepSeek ~128K），设计四层递进压缩策略，在 `CompactHook` 中作为 Agent 执行前 Hook 自动触发：
 
 ```
-用户输入 → CompressionQueryTransformer（结合历史压缩查询）
-         → MultiQueryExpander（扩展为 3 路查询，保留原始）
-         → MilvusVectorStore（topK=5，相似度≥0.7）
-         → ConcatenationDocumentJoiner（去重合并）
-         → SystemPrompt 注入上下文
+L1 工具结果截断 (ToolResultTruncator)
+    → 单个 tool_result > 40K 字符时截断为 3K 预览 + 外部存储引用
+L2 历史裁剪 (ContextSnip)
+    → 消息数 > 60 时裁剪低价值填充消息和重复错误信息
+L3 缓存清理 (MicroCompact)
+    → 保留最近 5 对工具调用/结果，删除旧缓存工具结果
+L4 异步 LLM 摘要压缩 (ContextCompactor)
+    → Token 超 160K 时触发，LLM 生成对话摘要，同时恢复：
+      · 最近读取的 5 个文件片段（每文件 ≤ 5K tokens）
+      · 当前计划文件内容
+      · 用户记忆档案 (.memory/MEMORY.md)
+      · 已启用的 Skill 规则
+    → 压缩不阻塞主流程，下次对话时自动注入恢复的上下文
 ```
 
-- 支持 PDF / Markdown / TXT / Java / Python / XML / JSON 等多格式文档导入
-- TokenTextSplitter：chunkSize=800，maxChunks=500
-- API：`POST /knowledge/upload`（multipart file）
+设计要点：**摘要负责"发生过什么"，附件负责"继续工作需要的上下文"**。仅保留摘要会导致 Agent 记得读过文件却看不到文件内容、记得有计划却看不到计划正文，因此每类丢失的上下文都有对应的恢复策略。压缩冷却期（5 次调用）防止频繁触发。
 
 ### 3. Human-In-The-Loop 高危操作审批
 
-**需要审批的工具**（配置在 SuperAssistant 构造函数）：
+**需要审批的工具**（配置在 AgentConfig）：
 
 | 工具 | 审批原因 |
 |------|---------|
 | `writeFile` | 文件写入 |
 | `deleteFile` | 文件删除 |
+| `executeCommand` | 终端命令执行 |
 | `sendEmail` | 邮件发送（审批前可编辑收件人/主题/正文） |
 | `sendEmailBatch` | 批量邮件发送（审批前可编辑参数） |
 
@@ -182,45 +113,78 @@ SuperAssistant/
 
 阶段 2: POST /api/chat/{threadId}/approve
   → 提交 decisions: [{toolId, result, editedArguments?}]
-  → 后端 HITLHelper.approveOneByOne() 应用决策
+  → 后端 HITLHelper.approveOneByOne() 逐条应用决策
   → RunnableConfig.addHumanFeedback() 注入 → Agent 恢复执行
-  → 链式中断自动处理（多个高危操作可连续触发）
+  → 链式中断自动处理（多个高危操作可连续触发审批）
 ```
 
-**Email 编辑审批**：`sendEmail` 的参数是 JSON `{"to","subject","body","isHtml","cc"}`，前端解析后可编辑再提交 `result: "EDITED"` + `editedArguments`。
+`result` 可选值：`APPROVED` / `REJECTED` / `EDITED`。`EDITED` 时必填 `editedArguments` 提供修改后的工具参数。
 
-核心类：[HITLHelper.java](app/src/main/java/com/itajay/superassistant/security/HITLHelper.java) · [ApprovalDecision.java](app/src/main/java/com/itajay/superassistant/security/ApprovalDecision.java)
+核心类：[SuperAssistant.java](app/src/main/java/com/itajay/superassistant/app/SuperAssistant.java) · [HITLHelper.java](app/src/main/java/com/itajay/superassistant/security/HITLHelper.java) · [ApprovalDecision.java](app/src/main/java/com/itajay/superassistant/security/ApprovalDecision.java)
 
-### 4. 自定义对话记忆
+### 4. RAG 检索增强生成
 
-[CustomJdbcChatMemoryRepository](app/src/main/java/com/itajay/superassistant/rag/CustomJdbcChatMemoryRepository.java)：基于 JDBC + Jackson 自研，替代 Spring AI 默认实现。
+完整五步管线：
 
-- 表 `CUSTOM_CHAT_MEMORY`：conversation_id + sequence_id + content(JSON) + type
+```
+用户输入 → QueryTransformation（结合历史对话压缩查询）
+         → QueryExpansion（扩展为 3 路查询，保留原始语义）
+         → DocumentRetrieval → MilvusVectorStore（topK=5，相似度≥0.7）
+         → DocumentPostRetrieval（结果去重合并）
+         → RagHook 将检索结果注入 SystemPrompt
+```
+
+- 支持 PDF / Markdown / TXT / Java / Python / XML / JSON 等多格式文档导入
+- TokenTextSplitter：chunkSize=800，maxChunks=500
+- API：`POST /knowledge/upload`（multipart file）
+
+### 5. 持久记忆体系
+
+MemoryTool 提供 Agent 可调用的记忆管理能力，存储于 `.memory/` 目录：
+
+| 操作 | 说明 |
+|------|------|
+| `remember` | 记录用户偏好/项目/事件/知识/联系人，按重要性 1-10 分级，自动去重更新 |
+| `recall` | 按关键词搜索记忆，按重要性排序返回 |
+| `listMemories` | 按类型分组列出全部记忆及容量使用情况 |
+| `deleteFact` | 按 ID 删除指定记忆 |
+| `consolidateMemories` | 清理低重要性（<4）记忆并重新编号，保持 ≤ 50 条预算 |
+
+上下文压缩后自动恢复用户记忆档案，确保长会话跨轮次不丢失个性化上下文。
+
+### 6. 自定义对话记忆
+
+[CustomJdbcChatMemoryRepository](app/src/main/java/com/itajay/superassistant/rag/CustomJdbcChatMemoryRepository.java)：基于 JDBC 自研，替代 Spring AI 默认实现。
+
+- 表 `CUSTOM_CHAT_MEMORY`：conversation_id + sequence_id(content) + type + timestamp
 - 支持 USER / ASSISTANT / SYSTEM / TOOL 四种消息类型
-- 额外提供窗口化查询 `findLatestByConversationId(id, limit)` —— SQL 层 LIMIT 避免全量加载
-- 提供追加插入 `appendMessage(id, msg)`
-- Builder 模式：`CustomJdbcChatMemoryRepository.builder().dataSource(ds).build()`
+- 窗口化查询 `findLatestByConversationId(id, limit)` —— SQL 层 LIMIT 避免全量加载
+- 追加插入 `appendMessage(id, msg)`
+- Builder 模式创建实例
 
-### 5. Tools 工具集
+### 7. Tools 工具集
 
-**TodoTool**
-- `queryTodos(status, priority, keyword)` —— MyBatis Plus 动态 SQL 组合查询
-- `getPendingTodos()` / `getOverdueTodos()` / `getTodosByPriority()` / `getTodosByAssignee()`
-- 表：`todo_task`（id, title, description, status, priority, due_date, assigned_to, tags）
+**TodoTool** — `queryTodos(status, priority, keyword)` 动态 SQL 组合查询；`getPendingTodos()` / `getOverdueTodos()` / `getTodosByPriority()`
 
-**WebSearchTool**
-- `webSearch(query)` —— DuckDuckGo HTML 搜索（无需 API Key），解析 top 8 结果
-- `webCrawl(url)` —— Jsoup 抓取全文，自动截断 >8000 字符防 token 溢出
+**WebSearchTool** — DuckDuckGo HTML 搜索（无需 API Key），解析 top 8 结果；`webCrawl(url)` Jsoup 抓取全文，>8K 字符自动截断
 
-**FileOperationTool**
-- `readFile` / `writeFile` / `createFile` / `deleteFile` / `listFiles`
-- 路径限制在 workspace 内
+**FileOperationTool** — `readFile` / `writeFile` / `createFile` / `deleteFile` / `listFiles`，路径限制在 workspace 内
 
-**EmailMcpTools**（独立 MCP Server :8081）
-- `sendEmail(to, subject, body, isHtml, cc)` —— SMTP 发送
-- `sendEmailBatch(recipients, subject, body, isHtml)` —— 批量发送
+**MemoryTool** — `remember` / `recall` / `listMemories` / `deleteFact` / `consolidateMemories`（见持久记忆体系）
 
-### 6. Agent Skills
+**PlanTool** — `enterPlanMode` / `exitPlanMode`，计划模式的进入与退出控制
+
+**TerminalTool** — `executeCommand`，终端命令执行（纳入 HITL 审批）
+
+**DateTimeTool** — `getCurrentDateTime`，获取当前日期时间
+
+**WeatherTool** — `getWeather`，查询城市天气
+
+**CreateAgentTool** — 动态创建子 Agent 执行独立任务
+
+**EmailMcpTools**（独立 MCP Server :8081）— `sendEmail` / `sendEmailBatch`，SMTP 发送（纳入 HITL 审批）
+
+### 8. Agent Skills
 
 [SkillConfig](app/src/main/java/com/itajay/superassistant/skill/SkillConfig.java) 通过 ClasspathSkillRegistry 加载 skills：
 
@@ -228,13 +192,139 @@ SuperAssistant/
 
 添加新 skill：在 `resources/skills/` 下创建 `skill.md` + 可选 `template/`、`example/` 目录即可。
 
+## 技术栈
+
+| 类别 | 技术 |
+|------|------|
+| **语言** | Java 21 |
+| **框架** | Spring Boot 4.1 · Spring AI 2.0 · Spring AI Alibaba 2.0-M1.1 |
+| **LLM** | DeepSeek (deepseek-chat) |
+| **Agent** | ReactAgent + StateGraph + MysqlSaver (checkpoint 持久化) |
+| **RAG** | QueryTransformation · QueryExpansion (×3) · MilvusVectorStore · DocumentPostRetrieval |
+| **向量库** | Milvus 2.x (localhost:9090) |
+| **数据库** | MySQL 8.0 (生产) · H2 (开发/测试) |
+| **ORM** | MyBatis Plus 3.5.17 |
+| **文档解析** | PDF (ParagraphPdfDocumentReader) · Markdown · TXT/Code (TextReader) |
+| **工具集成** | MCP (Model Context Protocol) — Client SSE ↔ Server WebMVC |
+| **前端** | Vue 3 + Vite + Lucide Icons |
+| **构建** | Maven 多模块 |
+
+## 项目结构
+
+```
+SuperAssistant/
+├── pom.xml                        # 父 POM，依赖管理
+├── docker-compose.yml             # MySQL + Milvus 容器编排
+├── frontend/                      # Vue 3 前端 :5173
+│   └── src/
+│       ├── App.vue
+│       └── views/
+│           ├── ChatView.vue       # 对话界面（含 HITL 审批面板 + 计划模式开关）
+│           ├── KnowledgeView.vue  # 知识库上传管理
+│           ├── PlanView.vue       # 多智能体计划进度
+│           └── TodoView.vue       # 待办任务管理
+├── app/                           # 主应用模块 :8080
+│   ├── pom.xml
+│   └── src/main/java/com/itajay/superassistant/
+│       ├── SuperAssistantApplication.java
+│       ├── app/                   # Controller 层
+│       │   ├── SuperAssistant.java       # 核心 API：对话 + HITL 审批
+│       │   ├── TodoController.java       # Todo REST API
+│       │   ├── RagController.java        # 知识库文件上传
+│       │   └── HealthController.java     # 健康检查
+│       ├── config/                # Spring 配置
+│       │   ├── AgentConfig.java          # main-agent 组装 + Hook 注册 + HITL 配置
+│       │   ├── ModelConfig.java          # DeepSeek 模型配置
+│       │   ├── McpConfig.java            # MCP Client 自动配置
+│       │   ├── SaverConfig.java          # 双数据源 (MySQL + rag)
+│       │   └── VectorConfig.java         # Milvus 向量库
+│       ├── agent/                 # 专业子 Agent
+│       │   ├── ResearchAgent.java        # 研究 Agent：搜索 + 素材收集
+│       │   ├── WriterAgent.java          # 写作 Agent：结构化文档撰写
+│       │   └── ReviewerAgent.java        # 审查 Agent：计划验收与修订判定
+│       ├── compact/               # 四层上下文压缩系统
+│       │   ├── CompactHook.java          # Agent 前置 Hook：触发压缩判断
+│       │   ├── CompactConfig.java        # 压缩阈值与参数配置
+│       │   ├── ContextCompactor.java     # L4：异步 LLM 摘要 + 上下文恢复
+│       │   ├── ToolResultTruncator.java  # L1：工具结果截断
+│       │   ├── ContextSnip.java          # L2：历史低价值消息裁剪
+│       │   ├── MicroCompact.java         # L3：旧工具结果缓存清理
+│       │   ├── SessionMemory.java        # 压缩前后会话状态管理
+│       │   └── FileReadState.java        # 文件读取状态追踪（用于恢复）
+│       ├── plan/                  # 计划模式上下文
+│       │   ├── PlanModeContext.java      # 计划模式状态管理
+│       │   └── PlanContextHolder.java    # ThreadLocal 上下文持有者
+│       ├── prompt/                # 提示词处理
+│       │   └── PromptSubmitHook.java     # 提示词预处理 Hook
+│       ├── interceptor/           # 工具拦截器
+│       │   └── PlanModeToolInterceptor.java  # 计划模式工具管控
+│       ├── rag/                   # RAG 检索增强管线
+│       │   ├── RagAgent.java             # 子 Agent：知识检索回答
+│       │   ├── RagHook.java              # RAG Hook：压缩→扩展→检索→注入
+│       │   ├── QueryTransformation.java  # 查询压缩 + 改写
+│       │   ├── QueryExpansion.java       # 多路查询扩展
+│       │   ├── DocumentRetrieval.java    # Milvus 向量检索
+│       │   ├── DocumentPostRetrieval.java# 结果合并去重
+│       │   ├── RagService.java           # 文档导入 + 切分 + 入库
+│       │   ├── CustomJdbcChatMemoryRepository.java  # 自定义对话记忆
+│       │   └── CustomMessageAgentHook.java          # 记忆注入 Hook
+│       ├── security/              # HITL 人工审批
+│       │   ├── HITLHelper.java            # 审批决策工具（逐一/全部/编辑参数）
+│       │   ├── ApprovalDecision.java      # 审批决策 DTO
+│       │   ├── PendingApproval.java       # 待审批项 DTO（前端渲染）
+│       │   └── PendingInterruptionStore.java  # 中断状态持久化
+│       ├── tool/                  # Agent 工具（共 10 个）
+│       │   ├── TodoTool.java              # 待办 CRUD
+│       │   ├── WebSearchTool.java         # DuckDuckGo + Jsoup
+│       │   ├── FileOperationTool.java     # 文件读写/创建/删除/列表
+│       │   ├── MemoryTool.java            # 持久记忆（remember/recall/list/delete/consolidate）
+│       │   ├── PlanTool.java              # 计划模式入口/出口
+│       │   ├── TerminalTool.java          # 终端命令执行（HITL 审批）
+│       │   ├── DateTimeTool.java          # 当前日期时间
+│       │   ├── WeatherTool.java           # 天气查询
+│       │   └── CreateAgentTool.java       # 动态创建子 Agent
+│       ├── workflow/              # Agent 工作流
+│       │   └── ResearchWriteWorkflow.java  # 研究→写作顺序流水线
+│       ├── service/               # 业务服务层
+│       │   ├── TodoService.java
+│       │   ├── WebSearchService.java
+│       │   ├── FileOperationService.java
+│       │   ├── AgentRunLogService.java
+│       │   └── TaskBreakdown.java
+│       ├── entity/                # MyBatis Plus 实体
+│       │   ├── TodoTask.java
+│       │   └── AgentRunLog.java
+│       ├── mapper/                # MyBatis Mapper
+│       │   ├── TodoTaskMapper.java
+│       │   └── AgentRunLogMapper.java
+│       ├── skill/                 # Agent Skills
+│       │   └── SkillConfig.java           # ClasspathSkillRegistry
+│       └── resources/
+│           ├── application.yml
+│           ├── sql/
+│           │   ├── schema.sql             # todo_task 表
+│           │   └── custom_chat_memory.sql
+│           └── skills/
+│               └── research_writing_skill/
+│                   ├── skill.md
+│                   ├── template/template.md
+│                   └── example/*.png
+│
+└── server/                        # MCP Email Server :8081
+    ├── pom.xml
+    └── src/main/java/com/itajay/mcpemail/
+        ├── McpEmailServerApplication.java
+        └── tool/
+            └── EmailMcpTools.java        # sendEmail / sendEmailBatch
+```
+
 ## API 参考
 
 ### 核心对话
 
 | Method | Path | Request | Response |
 |--------|------|---------|----------|
-| POST | `/api/chat/{threadId}` | `{"message":"..."}` | `{type:"ANSWER", response:"..."}` 或 `{type:"INTERRUPTED", pendingApprovals:[...]}` |
+| POST | `/api/chat/{threadId}` | `{"message":"...", "mode":"Default|PlanMode"}` | `{type:"ANSWER", response:"..."}` 或 `{type:"INTERRUPTED", pendingApprovals:[...]}` |
 | POST | `/api/chat/{threadId}/approve` | `{"decisions":[{"toolId","result","description?","editedArguments?"}]}` | 同 chat 响应格式 |
 
 ### 知识库
@@ -362,7 +452,7 @@ POST /api/chat/test-001/approve
 
 `result` 可选值：`APPROVED` / `REJECTED` / `EDITED`。当为 `REJECTED` 时可选填 `description` 描述拒绝理由；当为 `EDITED` 时必填 `editedArguments`。
 
-## 数据库表
+## Database
 
 | 表 | 用途 |
 |---|------|
@@ -371,11 +461,16 @@ POST /api/chat/test-001/approve
 | `plan_step` | 计划步骤与执行状态 |
 | `agent_run_log` | Agent 运行日志 |
 | `CUSTOM_CHAT_MEMORY` | 自定义对话记忆，JDBC 直连 |
-| `SPRING_AI_CHAT_MEMORY_*` | Spring AI 框架自动管理（checkpoint 等） |
+| `SPRING_AI_CHAT_MEMORY_*` | Spring AI 框架自动管理（checkpoint 持久化） |
 
 ## 注意事项
 
-- `SaverConfig` 中配置了两个 DataSource Bean：`dataSource`（MySQL）和 `ragDataSource`（MySQL superassistant_rag 库），后者用于 CustomJdbcChatMemoryRepository
+- `SaverConfig` 中配置了两个 DataSource Bean：`dataSource`（MySQL superassistant 库）和 `ragDataSource`（MySQL superassistant_rag 库），后者用于 CustomJdbcChatMemoryRepository
 - `HumanInTheLoopHook` 的恢复机制依赖 `RunnableConfig.Builder.addHumanFeedback(InterruptionMetadata)`，不要手动调 `CompiledGraph.updateState()`
 - `CustomMessageAgentHook` 当前仍使用 Spring AI 的 `JdbcChatMemoryRepository`，如需切换到自研的 `CustomJdbcChatMemoryRepository` 需手动替换
 - MCP email 工具名称必须与 `@Tool` 注解中暴露的名称一致：`sendEmail` / `sendEmailBatch`
+- `CompactConfig` 压缩冷却期为 5 次调用，`CONTEXT_WARNING_TOKENS` = 120K，`CONTEXT_CRITICAL_TOKENS` = 160K
+- `SessionMemory` 压缩后持久化到 `.compact/session_memory/`，下次对话自动注入恢复消息
+- `PlanModeToolInterceptor` 在计划模式下自动拦截 `writeFile`、`deleteFile`、`executeCommand` 等写操作，仅放行只读类工具
+
+维护者：[itajay](mailto:author@itajay.com)

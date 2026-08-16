@@ -48,3 +48,18 @@ mybatis-plus:
 
 server:
   port: 8080
+
+rag:
+  retrieval:
+    vector:
+      top-k: 5
+      similarity-threshold: 0.7
+    bm25:
+      top-k: 10
+      index-path: ./data/bm25-index
+    fusion:
+      top-k: 20
+      rrf-k: 60
+  rerank:
+    enabled: true
+    top-k: 5

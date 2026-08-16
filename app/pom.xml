@@ -21,6 +21,7 @@
         <spring-ai-alibaba.version>2.0.0-M1.1</spring-ai-alibaba.version>
         <spring-ai.version>2.0.0-M1</spring-ai.version>
         <mybatis-plus.version>3.5.17</mybatis-plus.version>
+        <lucene.version>9.12.1</lucene.version>
     </properties>
     <dependencies>
         <!-- Source: https://mvnrepository.com/artifact/org.springframework.ai/spring-ai-starter-model-chat-memory-repository-jdbc -->
@@ -135,6 +136,18 @@
             <groupId>org.jsoup</groupId>
             <artifactId>jsoup</artifactId>
             <version>1.18.1</version>
+        </dependency>
+
+        <!-- Lucene：BM25 关键字检索（中文分词） -->
+        <dependency>
+            <groupId>org.apache.lucene</groupId>
+            <artifactId>lucene-core</artifactId>
+            <version>${lucene.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.lucene</groupId>
+            <artifactId>lucene-analysis-smartcn</artifactId>
+            <version>${lucene.version}</version>
         </dependency>
     </dependencies>
 

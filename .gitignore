@@ -39,3 +39,6 @@ frontend/dist/
 ### Logs ###
 *.log
 startup.log
+
+# Lucene BM25 索引
+data/

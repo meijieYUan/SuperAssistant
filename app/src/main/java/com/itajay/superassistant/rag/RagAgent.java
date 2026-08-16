@@ -15,15 +15,14 @@ public class RagAgent {
 
 
     public RagAgent(RagHook raghook,
-                    ChatModel chatModel,
-                    CustomMessageAgentHook customMessageAgentHook) {
+                    ChatModel chatModel) {
         this.reactAgent = ReactAgent.builder()
                 .name("rag-agent")
                 .model(chatModel)
                 .instruction("{input}") //用户的输入 在 OverAllState 的 {input} 键中
                 .includeContents(false) //让rag agent专注于用户问题进行回答
                 .description(AGENT_DESCRIPTION)
-                .hooks(raghook, customMessageAgentHook)
+                .hooks(raghook)
                 .build();
     }
 

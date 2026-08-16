@@ -2,27 +2,31 @@ package com.itajay.superassistant.rag;
 
 import org.springframework.ai.document.Document;
 import org.springframework.ai.rag.Query;
-import org.springframework.ai.rag.retrieval.join.ConcatenationDocumentJoiner;
-import org.springframework.ai.rag.retrieval.join.DocumentJoiner;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
-import java.util.Map;
 
+/**
+ * 检索后处理：对多路、多查询召回的候选文档先去重，再做精排（rerank）。
+ */
 @Component
 public class DocumentPostRetrieval {
 
-    private final DocumentJoiner documentJoiner;
+    private final DocumentReranker documentReranker;
 
-    public DocumentPostRetrieval() {
-        this.documentJoiner = new ConcatenationDocumentJoiner();
+    public DocumentPostRetrieval(DocumentReranker documentReranker) {
+        this.documentReranker = documentReranker;
     }
 
-    public DocumentPostRetrieval(DocumentJoiner documentJoiner) {
-        this.documentJoiner = documentJoiner;
-    }
-
-    public List<Document> dojoin(Map<Query, List<List<Document>>> documentMap) {
-        return documentJoiner.join(documentMap);
+    /**
+     * 去重 + 精排。
+     *
+     * @param query      原始（压缩后的）查询
+     * @param candidates 多路、多查询召回的候选文档
+     * @return 精排后的文档列表
+     */
+    public List<Document> doPostProcess(Query query, List<Document> candidates) {
+        List<Document> deduplicated = DocumentFusion.deduplicate(candidates);
+        return documentReranker.rerank(query, deduplicated);
     }
 }

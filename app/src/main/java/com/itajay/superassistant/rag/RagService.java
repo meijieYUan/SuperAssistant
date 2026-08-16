@@ -22,12 +22,15 @@ public class RagService {
 
     private final VectorStore vectorStore;
 
+    private final Bm25Index bm25Index;
+
     private final TokenTextSplitter tokenTextSplitter;
 
-    public RagService(VectorStore vectorStore) {
+    public RagService(VectorStore vectorStore, Bm25Index bm25Index) {
         this.vectorStore = vectorStore;
+        this.bm25Index = bm25Index;
         this.tokenTextSplitter = TokenTextSplitter.builder()
-                .withChunkSize(800)
+                .withChunkSize(500)
                 .withMinChunkSizeChars(100)
                 .withMinChunkLengthToEmbed(10)
                 .withMaxNumChunks(500)
@@ -50,7 +53,7 @@ public class RagService {
         log.info("Split into {} chunks from {}", chunks.size(), resource.getFilename());
 
         storeDocuments(chunks);
-        log.info("Stored {} chunks to vector store", chunks.size());
+        log.info("Stored {} chunks to vector store and BM25 index", chunks.size());
 
         return chunks.size();
     }
@@ -110,7 +113,11 @@ public class RagService {
         return tokenTextSplitter.split(documents);
     }
 
+    /**
+     * 同时写入向量库（Milvus）与 BM25 关键字索引（Lucene）。
+     */
     private void storeDocuments(List<Document> chunks) {
         vectorStore.add(chunks);
+        bm25Index.add(chunks);
     }
 }
