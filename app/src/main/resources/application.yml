@@ -63,3 +63,24 @@ rag:
   rerank:
     enabled: true
     top-k: 5
+
+agent:
+  guard:
+    # 模型调用异常兜底（重试 + 兜底回答）
+    model-retry:
+      max-attempts: 3
+      initial-delay-ms: 500
+      max-delay-ms: 8000
+      backoff-multiplier: 2.0
+    # 工具调用异常兜底（重试 + 优雅降级）
+    tool-retry:
+      max-retries: 2
+      initial-delay-ms: 300
+      max-delay-ms: 3000
+      backoff-factor: 2.0
+    # 防死循环
+    loop:
+      max-model-calls-per-run: 15
+      max-model-calls-per-thread: 60
+      max-total-tool-calls: 60
+      max-identical-calls: 3

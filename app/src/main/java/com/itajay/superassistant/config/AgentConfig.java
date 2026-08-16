@@ -4,12 +4,17 @@ import com.alibaba.cloud.ai.graph.agent.AgentTool;
 import com.alibaba.cloud.ai.graph.agent.ReactAgent;
 import com.alibaba.cloud.ai.graph.agent.hook.hip.HumanInTheLoopHook;
 import com.alibaba.cloud.ai.graph.agent.hook.hip.ToolConfig;
+import com.alibaba.cloud.ai.graph.agent.hook.modelcalllimit.ModelCallLimitHook;
 import com.alibaba.cloud.ai.graph.agent.hook.skills.SkillsAgentHook;
+import com.alibaba.cloud.ai.graph.agent.interceptor.toolerror.ToolErrorInterceptor;
+import com.alibaba.cloud.ai.graph.agent.interceptor.toolretry.ToolRetryInterceptor;
 import com.alibaba.cloud.ai.graph.checkpoint.savers.mysql.MysqlSaver;
 import com.itajay.superassistant.agent.ResearchAgent;
 import com.itajay.superassistant.agent.ReviewerAgent;
 import com.itajay.superassistant.agent.WriterAgent;
 import com.itajay.superassistant.compact.CompactHook;
+import com.itajay.superassistant.interceptor.LoopGuardToolInterceptor;
+import com.itajay.superassistant.interceptor.ModelCallGuardInterceptor;
 import com.itajay.superassistant.tool.CreateAgentTool;
 import com.itajay.superassistant.workflow.ResearchWriteWorkflow;
 import com.itajay.superassistant.interceptor.PlanModeToolInterceptor;
@@ -59,6 +64,13 @@ public class AgentConfig {
             8. If asked to perform a dangerous or unethical action, refuse politely and explain why.
             9. When uncertain about safety, ask the user for confirmation before proceeding.
 
+            ## Robustness & Termination Rules (CRITICAL — prevents infinite loops)
+            - **Know when to stop**: if you have made several tool attempts without meaningful progress, STOP immediately. Give your best answer with what you already know, or ask the user for clarification — never keep looping.
+            - **No repetition**: never call the same tool repeatedly with identical or near-identical arguments. If a tool call fails twice, change your approach (different parameters, a different tool, or asking the user) instead of retrying the same thing.
+            - **Handle tool errors gracefully**: if a tool returns an error, do NOT blindly retry. Read the error message, decide whether a single corrected retry makes sense, and otherwise explain the problem honestly to the user.
+            - **Budget awareness**: aim to resolve a request in a small number of steps. Each tool call is expensive; only call tools when they clearly advance the goal.
+            - **Finish decisively**: once you have enough information, produce the final answer immediately. Do not keep calling tools "just to be sure".
+
             ## Workflow
             - Simple requests: respond directly with the appropriate tool.
             - Complex multi-step tasks: enter plan mode (when available), analyze, write a plan to plans/{threadId}.md, present it, and wait for approval.
@@ -86,6 +98,11 @@ public class AgentConfig {
                                  ResearchWriteWorkflow researchWriteWorkflow,
                                  SkillsAgentHook skillsAgentHook,
                                  MysqlSaver mysqlSaver,
+                                 ModelCallLimitHook modelCallLimitHook,
+                                 ModelCallGuardInterceptor modelCallGuardInterceptor,
+                                 LoopGuardToolInterceptor loopGuardToolInterceptor,
+                                 ToolRetryInterceptor toolRetryInterceptor,
+                                 ToolErrorInterceptor toolErrorInterceptor,
                                  @Nullable ToolCallbackProvider mcpToolCallbackProvider) {
 
         HumanInTheLoopHook humanInTheLoopHook = HumanInTheLoopHook.builder()
@@ -115,8 +132,9 @@ public class AgentConfig {
                 .methodTools(todoTool, webSearchTool, fileOperationTool, memoryTool,
                              planTool, terminalTool, createAgentTool, researchWriteWorkflow)
                 .tools(ragTool, researchTool, writerTool, reviewerTool)
-                .hooks(compactHook, promptSubmitHook, skillsAgentHook, humanInTheLoopHook)
-                .interceptors(planModeToolInterceptor)
+                .hooks(compactHook, promptSubmitHook, skillsAgentHook, humanInTheLoopHook, modelCallLimitHook)
+                .interceptors(planModeToolInterceptor, modelCallGuardInterceptor,
+                              loopGuardToolInterceptor, toolRetryInterceptor, toolErrorInterceptor)
                 .saver(mysqlSaver)
                 .outputKey("output");
 
